@@ -3,3 +3,14 @@
 .vscode/c_cpp_properties.json
 .vscode/launch.json
 .vscode/ipch
+
+# AI / editor
+.superpowers/
+.claude/
+
+# Node
+web/node_modules/
+web/dist/
+
+# macOS
+.DS_Store
