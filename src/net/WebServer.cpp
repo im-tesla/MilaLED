@@ -157,21 +157,29 @@ void MilaWebServer::loop() {
 
             WiFiClient client;
             HTTPClient http;
-            String url = String("http://") + ipBuf + ":1925/ambilight/processed";
-            http.begin(client, url);
-            http.setTimeout(80);  // responsive hosts reply <5ms; DHCP gaps take ~80ms
-            if (http.GET() == 200) {
-                StaticJsonDocument<64> probe;
-                if (!deserializeJson(probe, http.getStream()) && probe.containsKey("layer1")) {
-                    StaticJsonDocument<64> resp;
-                    resp["type"] = "ambilightFound";
-                    resp["ip"]   = ipBuf;
-                    String out;
-                    serializeJson(resp, out);
-                    _ws.broadcastTXT(out.c_str());
+
+            // Pre-connect TCP with short timeout so dead IPs don't stall the scan
+            // (lwIP TCP SYN retransmit can take 2-3s; client.setTimeout caps it)
+            client.setTimeout(80);
+            if (client.connect(ipBuf, 1925)) {
+                // reuse the already-connected socket
+                String url = String("http://") + ipBuf + ":1925/ambilight/processed";
+                http.begin(client, url);
+                http.setTimeout(80);
+                if (http.GET() == 200) {
+                    StaticJsonDocument<64> probe;
+                    if (!deserializeJson(probe, http.getStream()) && probe.containsKey("layer1")) {
+                        StaticJsonDocument<64> resp;
+                        resp["type"] = "ambilightFound";
+                        resp["ip"]   = ipBuf;
+                        String out;
+                        serializeJson(resp, out);
+                        _ws.broadcastTXT(out.c_str());
+                    }
                 }
+                http.end();
             }
-            http.end();
+            client.stop();
             _scanIp++;
         }
     }

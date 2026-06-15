@@ -124,16 +124,16 @@ void EffectsEngine::flushVirtualToPhysical() {
     for (uint16_t v = 0; v < _virtCount; v++) {
         _leds[_mapper->toPhysical(v)] = _vbuf[v];
     }
-    // Fill skipped physical LEDs by copying even→odd neighbour for half-density segments
+    // Set skipped physical LEDs to black for half-density segments
     if (_mapper->segAHalf()) {
         for (uint16_t p = 1; p < _mapper->segACount(); p += 2) {
-            _leds[p] = _leds[p - 1];
+            _leds[p] = CRGB::Black;
         }
     }
     if (_mapper->segBHalf()) {
         uint16_t segBStart = _mapper->segACount();
         for (uint16_t p = segBStart + 1; p < _physCount; p += 2) {
-            _leds[p] = _leds[p - 1];
+            _leds[p] = CRGB::Black;
         }
     }
 }
