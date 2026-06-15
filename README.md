@@ -1,6 +1,6 @@
 # MilaLED
 
-ESP8266-based Wi-Fi LED strip controller with a modern mobile-first web interface. Control your WS2815 (or compatible) LED strip from any device on your network — no app required.
+ESP8266 / ESP32 Wi-Fi LED strip controller with a modern mobile-first web interface. Control your WS2815 (or compatible) LED strip from any device on your network — no app required.
 
 **Works with:** WS2811, WS2812B, WS2815, WS2813, SK6812 | RGB, GRB, and more
 
@@ -33,13 +33,22 @@ ESP8266-based Wi-Fi LED strip controller with a modern mobile-first web interfac
 - **Presets** — save and recall your favorite setups
 - **English / Polish** — auto-detected, toggleable
 - **Dark & light theme**
-- **No cloud, no app, no account** — self-contained on the ESP8266
+- **No cloud, no app, no account** — self-contained on the ESP
+
+## Supported boards
+
+| Platform | Boards | RAM | Flash |
+|----------|--------|-----|-------|
+| **ESP8266** | ESP-12E, NodeMCU, Wemos D1 mini, Adafruit HUZZAH | 80 KB | 2-4 MB |
+| **ESP32** | ESP32 DevKit, NodeMCU-32S, ESP32-S3, ESP32-C6 | 320-520 KB | 4-16 MB |
+
+Virtually any ESP8266 with ≥2MB flash or any ESP32 with ≥4MB flash works. See `platformio.ini` for pre-configured environments — just uncomment your board.
 
 ## Hardware
 
 | Component | Details |
 |-----------|---------|
-| **Board** | ESP8266 ESP-12E |
+| **Board** | ESP8266 (ESP-12E/NodeMCU/Wemos D1) or ESP32 (DevKit/S3/C6) |
 | **Strip** | WS2815 (WS2811/WS2812B/WS2813/SK6812 also supported) |
 | **Data pin** | Configurable (GPIO 2, 4, 5, 12, 13, 14) |
 | **Color order** | Configurable (RGB, RBG, GRB, GBR, BRG, BGR) |
@@ -56,7 +65,23 @@ Install [PlatformIO](https://platformio.org/install) (VS Code extension or CLI):
 pip install platformio
 ```
 
-### 2. Build the web UI
+### 2. Pick your board
+
+Edit `platformio.ini` and set `default_envs` to your board:
+
+```ini
+; ESP8266
+default_envs = esp12e     # ESP-12E (default)
+default_envs = nodemcuv2  # NodeMCU 1.0
+default_envs = d1_mini    # Wemos D1 mini
+
+; ESP32
+default_envs = esp32dev           # ESP32 DevKit / WROOM
+default_envs = nodemcu-32s        # ESP32-S2
+default_envs = esp32-s3-devkitc-1 # ESP32-S3
+```
+
+### 3. Build the web UI
 
 ```bash
 python scripts/build_web.py
@@ -64,9 +89,9 @@ python scripts/build_web.py
 
 This runs `npm build` in `web/`, gzips the output, and places it in `data/`.
 
-### 3. Flash the ESP8266
+### 4. Flash
 
-Connect your ESP8266 via USB, then:
+Connect your board via USB, then:
 
 ```bash
 # Flash the web files (LittleFS)
@@ -76,9 +101,9 @@ pio run --target uploadfs
 pio run --target upload
 ```
 
-### 4. Connect
+### 5. Connect
 
-On first boot, the ESP8266 creates a Wi-Fi hotspot called **MilaLED**. Connect to it, open a browser, and you'll be guided through connecting it to your home network. Once connected, go to `http://milaled.local` (or the IP shown in settings).
+On first boot, the board creates a Wi-Fi hotspot called **MilaLED**. Connect to it, open a browser, and follow the captive portal to connect to your home network. Once connected, go to `http://milaled.local` (or the IP shown in settings).
 
 ## Development
 

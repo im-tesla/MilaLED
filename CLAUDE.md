@@ -1,16 +1,16 @@
 # MilaLED — Claude Code Reference
 
-ESP8266 WS2815 LED strip controller with a React/Vite web UI. Controls 178 physical LEDs across two segments, serves a mobile-first interface from LittleFS over WiFi, and integrates with Philips TV Ambilight.
+ESP8266 / ESP32 WS2815 LED strip controller with a React/Vite web UI. Controls 178 physical LEDs across two segments, serves a mobile-first interface from LittleFS over WiFi, and integrates with Philips TV Ambilight.
 
 ## Project layout
 
 ```
-src/           — Arduino firmware (PlatformIO, esp12e board)
+src/           — Arduino firmware (PlatformIO, multi-board)
   main.cpp            — boot sequence, loop()
   config/             — ConfigStore (LittleFS JSON persistence)
   leds/               — EffectsEngine, PixelMapper, 17 effects
     effects/          — one .cpp per effect (included directly)
-  net/                — MilaWebServer (ESP8266WebServer + WebSockets)
+  net/                — MilaWebServer (ESP8266WebServer or WebServer)
   wifi/               — NetworkManager (WiFiManager + mDNS)
   version.h           — MILALED_VERSION macro
 web/           — React 18 + Vite + shadcn/ui + Tailwind CSS
@@ -20,7 +20,7 @@ web/           — React 18 + Vite + shadcn/ui + Tailwind CSS
 scripts/       — build_web.py (npm build → gzip → data/)
 data/          — gzipped LittleFS image (served by ESP)
 test/          — native unit tests (PixelMapper)
-platformio.ini — esp12e + native envs
+platformio.ini — esp12e, nodemcuv2, d1_mini, esp32dev, esp32-s3-devkitc-1, native
 ```
 
 ## Build & flash
@@ -29,12 +29,13 @@ platformio.ini — esp12e + native envs
 # Build web UI (React → gzip → data/)
 python scripts/build_web.py
 
-# Compile firmware
-pio run                     # or: python -m platformio run
+# Compile firmware (target specific env or edit default_envs in platformio.ini)
+pio run -e esp12e             # ESP8266
+pio run -e esp32dev           # ESP32
 
 # Flash filesystem then firmware
-pio run --target uploadfs
-pio run --target upload
+pio run -e esp32dev --target uploadfs
+pio run -e esp32dev --target upload
 
 # Serial monitor
 pio device monitor
@@ -76,8 +77,18 @@ English and Polish. Strings live in `web/src/i18n/{en,pl}.json`. Effect names an
 ## Theme
 Dark mode by default, light mode toggle in Header. Uses shadcn HSL CSS variables. Light mode remaps hardcoded dark Tailwind classes (like `bg-zinc-900`, `text-zinc-100`) via specificity rules in `web/src/index.css`.
 
+## Platform portability
+
+The code uses `#ifdef ESP32` / `#ifdef ESP8266` guards in 4 files for platform-specific headers:
+- `src/net/WebServer.h` — `WebServer` (ESP32) vs `ESP8266WebServer`
+- `src/net/WebServer.cpp` — `HTTPClient.h` (ESP32) vs `ESP8266HTTPClient.h`
+- `src/leds/effects/AmbilightEffect.cpp` — same HTTPClient split
+- `src/wifi/NetworkManager.cpp` — `ESPmDNS` (ESP32) vs `ESP8266mDNS`; ESP32 skips `MDNS.update()`
+
+Preset directory iteration uses `File`+`openNextFile()` which works on both. All other libraries (FastLED, ArduinoJson, WebSockets, WiFiManager) are cross-platform.
+
 ## Hardware
-- Board: ESP8266 esp12e, 80KB RAM, 1MB flash
+- Board: ESP8266 (ESP-12E/NodeMCU/Wemos D1) or ESP32 (DevKit/S3/C6/S2)
 - Strip: WS2815 (configurable to WS2811/WS2812B/WS2813/SK6812)
 - Data pin: configurable GPIO 2/4/5/12/13/14
 - Color order: configurable RGB/RBG/GRB/GBR/BRG/BGR

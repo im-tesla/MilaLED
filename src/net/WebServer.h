@@ -1,5 +1,11 @@
 #pragma once
+#ifdef ESP32
+#include <WebServer.h>
+using WebServerClass = WebServer;
+#else
 #include <ESP8266WebServer.h>
+using WebServerClass = ESP8266WebServer;
+#endif
 #include <WebSocketsServer.h>
 #include "../config/ConfigStore.h"
 #include "../leds/EffectsEngine.h"
@@ -12,7 +18,7 @@ public:
     void broadcastScanProgress(uint8_t pct, const char* msg);
 
 private:
-    ESP8266WebServer _http{80};
+    WebServerClass   _http{80};
     WebSocketsServer _ws{81};
     Config*          _cfg    = nullptr;
     ConfigStore*     _store  = nullptr;

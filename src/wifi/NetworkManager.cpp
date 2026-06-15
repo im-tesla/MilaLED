@@ -1,6 +1,10 @@
 #include "NetworkManager.h"
 #include <WiFiManager.h>
+#ifdef ESP32
+#include <ESPmDNS.h>
+#else
 #include <ESP8266mDNS.h>
+#endif
 
 static WiFiManager _wm;
 
@@ -26,5 +30,8 @@ String NetworkManager::ssid() const {
 }
 
 void NetworkManager::loop() {
+#ifdef ESP8266
     MDNS.update();
+#endif
+    // ESP32 mDNS runs automatically — no explicit update needed
 }

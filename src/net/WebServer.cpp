@@ -1,7 +1,11 @@
 #include "WebServer.h"
 #include <LittleFS.h>
 #include <ArduinoJson.h>
+#ifdef ESP32
+#include <HTTPClient.h>
+#else
 #include <ESP8266HTTPClient.h>
+#endif
 #include <WiFiClient.h>
 #include <WiFiManager.h>
 #include "../version.h"
@@ -257,16 +261,21 @@ void MilaWebServer::handleWsMessage(const char* json) {
 void MilaWebServer::handleRestPresets() {
     StaticJsonDocument<2048> doc;
     JsonArray arr = doc.to<JsonArray>();
-    Dir dir = LittleFS.openDir("/presets");
-    while (dir.next()) {
-        if (!dir.isFile()) continue;
-        File f = dir.openFile("r");
-        StaticJsonDocument<256> p;
-        if (!deserializeJson(p, f)) {
-            arr.add(p);
+    File dir = LittleFS.open("/presets", "r");
+    if (dir && dir.isDirectory()) {
+        File f = dir.openNextFile();
+        while (f) {
+            if (!f.isDirectory()) {
+                StaticJsonDocument<256> p;
+                if (!deserializeJson(p, f)) {
+                    arr.add(p);
+                }
+            }
+            f.close();
+            f = dir.openNextFile();
         }
-        f.close();
     }
+    if (dir) dir.close();
     String out;
     serializeJson(doc, out);
     _http.send(200, "application/json", out);
