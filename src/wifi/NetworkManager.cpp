@@ -7,12 +7,41 @@
 #endif
 
 static WiFiManager _wm;
+static bool _shouldSave = false;
+
+// Called by WiFiManager BEFORE saving — validate credentials are non-empty
+static void preSaveCallback() {
+    // WiFiManager calls this right before writing to flash.
+    // If SSID is empty, the user hit refresh or submitted an empty form.
+    if (_wm.getWiFiSSID().length() < 2) {
+        _shouldSave = false;
+        return;
+    }
+    _shouldSave = true;
+}
 
 void NetworkManager::begin(const char* apName) {
-    _wm.setConfigPortalTimeout(180);
-    _wm.setConnectTimeout(15);
-    _wm.autoConnect(apName);
-    if (WiFi.status() == WL_CONNECTED) {
+    // Fallback AP for captive-portal setup when no saved network
+    _wm.setConfigPortalTimeout(150);
+
+    // Prevent accidental save from page refresh / empty form
+    _wm.setSaveConfigCallback(preSaveCallback);
+
+    // Connect timeout: give up after 10s and fall back to AP
+    _wm.setConnectTimeout(10);
+
+    // Don't reboot after saving — we handle that ourselves
+    _wm.setBreakAfterConfig(false);
+
+    bool connected = _wm.autoConnect(apName);
+
+    if (_shouldSave) {
+        // Valid credentials were saved — reboot to use them
+        delay(500);
+        ESP.restart();
+    }
+
+    if (connected) {
         MDNS.begin("milaled");
     }
 }
