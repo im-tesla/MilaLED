@@ -17,6 +17,7 @@ private:
     Config*          _cfg    = nullptr;
     ConfigStore*     _store  = nullptr;
     EffectsEngine*   _engine = nullptr;
+    bool             _pendingRestart = false;
 
     void handleWsEvent(uint8_t num, WStype_t type, uint8_t* payload, size_t len);
     void handleWsMessage(const char* json);

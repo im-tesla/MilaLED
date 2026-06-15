@@ -13,6 +13,9 @@ export interface LedState {
   virtualLeds: number
   ip: string
   ssid: string
+  segALeds: number
+  segBLeds: number
+  segAHalf: boolean
   tvIp: string
   ambPollMs: number
   ambMapping: string
@@ -31,6 +34,9 @@ const DEFAULT: LedState = {
   virtualLeds: 118,
   ip: '',
   ssid: '',
+  segALeds: 120,
+  segBLeds: 58,
+  segAHalf: true,
   tvIp: '',
   ambPollMs: 100,
   ambMapping: 'right',

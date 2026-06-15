@@ -80,12 +80,22 @@ void MilaWebServer::begin(Config* cfg, ConfigStore* store, EffectsEngine* engine
         _http.send(200, "application/json", "{\"ok\":true}");
     });
 
-    // REST: ambilight scan
+    // REST: ambilight scan (triggers async scan, progress comes back via WebSocket)
     _http.on("/api/ambilight/scan", HTTP_POST, [this]() { handleAmbilightScan(); });
 
-    // REST: OTA check (stub)
-    _http.on("/api/ota/check", HTTP_GET, [this]() {
-        _http.send(200, "application/json", "{\"upToDate\":true}");
+    // REST: strip config — saves and restarts so FastLED reinitialises
+    _http.on("/api/strip", HTTP_POST, [this]() {
+        StaticJsonDocument<128> doc;
+        if (deserializeJson(doc, _http.arg("plain"))) {
+            _http.send(400, "application/json", "{\"error\":\"bad json\"}");
+            return;
+        }
+        if (doc.containsKey("segALeds")) _cfg->segALeds = doc["segALeds"];
+        if (doc.containsKey("segBLeds")) _cfg->segBLeds = doc["segBLeds"];
+        if (doc.containsKey("segAHalf")) _cfg->segAHalf = doc["segAHalf"].as<bool>();
+        _store->save(*_cfg);
+        _http.send(200, "application/json", "{\"ok\":true}");
+        _pendingRestart = true;
     });
 
     _http.begin();
@@ -99,6 +109,10 @@ void MilaWebServer::begin(Config* cfg, ConfigStore* store, EffectsEngine* engine
 void MilaWebServer::loop() {
     _http.handleClient();
     _ws.loop();
+    if (_pendingRestart) {
+        delay(200); // let HTTP response flush
+        ESP.restart();
+    }
 }
 
 void MilaWebServer::broadcastState() {
@@ -212,25 +226,28 @@ void MilaWebServer::handleAmbilightScan() {
 }
 
 String MilaWebServer::buildStateJson() {
-    StaticJsonDocument<512> doc;
-    doc["type"]         = "state";
-    doc["power"]        = _cfg->power;
-    doc["brightness"]   = _cfg->brightness;
-    doc["effect"]       = _cfg->effect;
-    doc["speed"]        = _cfg->speed;
-    doc["intensity"]    = _cfg->intensity;
+    StaticJsonDocument<768> doc;
+    doc["type"]           = "state";
+    doc["power"]          = _cfg->power;
+    doc["brightness"]     = _cfg->brightness;
+    doc["effect"]         = _cfg->effect;
+    doc["speed"]          = _cfg->speed;
+    doc["intensity"]      = _cfg->intensity;
     char hex[8];
     snprintf(hex, sizeof(hex), "#%06lX", _cfg->colorPrimary);
-    doc["colorPrimary"] = hex;
+    doc["colorPrimary"]   = hex;
     snprintf(hex, sizeof(hex), "#%06lX", _cfg->colorSecondary);
     doc["colorSecondary"] = hex;
-    doc["palette"]      = _cfg->palette;
-    doc["virtualLeds"]  = _engine->virtualCount();
-    doc["ip"]           = WiFi.localIP().toString();
-    doc["ssid"]         = WiFi.SSID();
-    doc["tvIp"]         = _cfg->tvIp;
-    doc["ambPollMs"]    = _cfg->ambPollMs;
-    doc["ambMapping"]   = _cfg->ambMapping;
+    doc["palette"]        = _cfg->palette;
+    doc["virtualLeds"]    = _engine->virtualCount();
+    doc["ip"]             = WiFi.localIP().toString();
+    doc["ssid"]           = WiFi.SSID();
+    doc["segALeds"]       = _cfg->segALeds;
+    doc["segBLeds"]       = _cfg->segBLeds;
+    doc["segAHalf"]       = _cfg->segAHalf;
+    doc["tvIp"]           = _cfg->tvIp;
+    doc["ambPollMs"]      = _cfg->ambPollMs;
+    doc["ambMapping"]     = _cfg->ambMapping;
     String out;
     serializeJson(doc, out);
     return out;

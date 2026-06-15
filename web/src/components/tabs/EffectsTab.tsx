@@ -4,25 +4,14 @@ import { ParamSlider } from '@/components/shared/ParamSlider'
 import { Badge } from '@/components/ui/badge'
 import type { LedState } from '@/hooks/useLedState'
 
-const EFFECTS = [
-  { id: 'solid',      label: 'Solid' },
-  { id: 'colortemp',  label: 'Color Temp' },
-  { id: 'rainbow',    label: 'Rainbow' },
-  { id: 'comet',      label: 'Comet' },
-  { id: 'cylon',      label: 'Cylon' },
-  { id: 'theater',    label: 'Theater Chase' },
-  { id: 'running',    label: 'Running Lights' },
-  { id: 'fire2012',   label: 'Fire 2012' },
-  { id: 'lava',       label: 'Lava' },
-  { id: 'ocean',      label: 'Ocean' },
-  { id: 'twinkle',    label: 'Twinkle' },
-  { id: 'meteor',     label: 'Meteor Rain' },
-  { id: 'sparkle',    label: 'Sparkle' },
-  { id: 'breathing',  label: 'Breathing' },
-  { id: 'strobe',     label: 'Strobe' },
-  { id: 'perlinflow', label: 'Perlin Flow' },
-  { id: 'ambilight',  label: 'Ambilight' },
+const EFFECT_IDS = [
+  'solid', 'colortemp', 'rainbow', 'comet', 'cylon',
+  'theater', 'running', 'fire2012', 'lava', 'ocean',
+  'twinkle', 'meteor', 'sparkle', 'breathing', 'strobe',
+  'perlinflow', 'ambilight',
 ] as const
+
+type EffectId = typeof EFFECT_IDS[number]
 
 interface Props {
   state: LedState
@@ -31,14 +20,16 @@ interface Props {
 
 export function EffectsTab({ state, update }: Props) {
   const { t } = useTranslation()
-  const active = EFFECTS.find(e => e.id === state.effect)
+  const activeId = EFFECT_IDS.includes(state.effect as EffectId) ? state.effect as EffectId : null
 
   return (
     <div className="space-y-4">
-      {active && (
+      {activeId && (
         <div className="rounded-xl bg-zinc-900 border border-zinc-800 p-3 space-y-3">
           <div className="flex items-center justify-between">
-            <span className="text-sm font-medium text-zinc-100">{active.label}</span>
+            <span className="text-sm font-medium text-zinc-100">
+              {t(`effects.names.${activeId}`)}
+            </span>
             <Badge variant="outline" className="text-[10px] border-amber-400/40 text-amber-400">
               {t('effects.active')}
             </Badge>
@@ -56,13 +47,13 @@ export function EffectsTab({ state, update }: Props) {
         </div>
       )}
       <div className="grid grid-cols-2 gap-2">
-        {EFFECTS.map(e => (
+        {EFFECT_IDS.map(id => (
           <EffectCard
-            key={e.id}
-            id={e.id}
-            label={e.label}
-            active={state.effect === e.id}
-            onClick={() => update({ effect: e.id })}
+            key={id}
+            id={id}
+            label={t(`effects.names.${id}`)}
+            active={state.effect === id}
+            onClick={() => update({ effect: id })}
           />
         ))}
       </div>

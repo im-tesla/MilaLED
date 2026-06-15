@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { WifiHigh, ArrowClockwise, MagnifyingGlass } from '@phosphor-icons/react'
+import { WifiHigh, MagnifyingGlass, ArrowCounterClockwise } from '@phosphor-icons/react'
 import { AmbilightStatus } from '@/components/shared/AmbilightStatus'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -23,27 +23,32 @@ const MAPPING_OPTIONS: { value: string; key: string }[] = [
 interface Props {
   state: LedState
   update: (p: Partial<LedState>) => void
-  send: (data: object) => void
   scanProgress: { pct: number; msg: string } | null
   foundTvs: string[]
 }
 
-export function SettingsTab({ state, update, send, scanProgress, foundTvs }: Props) {
+export function SettingsTab({ state, update, scanProgress, foundTvs }: Props) {
   const { t, i18n } = useTranslation()
-  const [otaStatus, setOtaStatus] = useState<string | null>(null)
 
-  const checkOta = async () => {
-    setOtaStatus(t('settings.check'))
-    try {
-      const r = await fetch('/api/ota')
-      const d = await r.json() as { version?: string }
-      setOtaStatus(d.version ?? 'ok')
-    } catch {
-      setOtaStatus('error')
-    }
+  // Local strip config — only applied on "Save & Reboot"
+  const [segALeds, setSegALeds] = useState(state.segALeds)
+  const [segBLeds, setSegBLeds] = useState(state.segBLeds)
+  const [segAHalf, setSegAHalf] = useState(state.segAHalf)
+  const [rebooting, setRebooting] = useState(false)
+
+  const saveStrip = async () => {
+    setRebooting(true)
+    await fetch('/api/strip', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ segALeds, segBLeds, segAHalf }),
+    }).catch(() => {})
+    // ESP restarts — WebSocket will reconnect automatically
   }
 
-  const startScan = () => send({ action: 'scanAmbilight' })
+  const startScan = () => {
+    fetch('/api/ambilight/scan', { method: 'POST' }).catch(() => {})
+  }
 
   return (
     <div className="space-y-5">
@@ -53,9 +58,60 @@ export function SettingsTab({ state, update, send, scanProgress, foundTvs }: Pro
         <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">
           {t('settings.strip')}
         </h3>
-        <div className="rounded-xl bg-zinc-900 border border-zinc-800 p-3 flex justify-between text-sm">
-          <span className="text-zinc-400">Virtual LEDs</span>
-          <span className="text-zinc-100 tabular-nums">{state.virtualLeds}</span>
+        <div className="rounded-xl bg-zinc-900 border border-zinc-800 p-3 space-y-3">
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-zinc-400">Virtual LEDs</span>
+            <span className="text-zinc-100 tabular-nums">{state.virtualLeds}</span>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1">
+              <span className="text-xs text-zinc-500">{t('settings.segA')}</span>
+              <Input
+                type="number"
+                value={segALeds}
+                onChange={e => setSegALeds(Number(e.target.value))}
+                min={1} max={500}
+                className="bg-zinc-800 border-zinc-700 text-sm h-9"
+              />
+            </div>
+            <div className="space-y-1">
+              <span className="text-xs text-zinc-500">{t('settings.segB')}</span>
+              <Input
+                type="number"
+                value={segBLeds}
+                onChange={e => setSegBLeds(Number(e.target.value))}
+                min={0} max={500}
+                className="bg-zinc-800 border-zinc-700 text-sm h-9"
+              />
+            </div>
+          </div>
+          <div className="space-y-1">
+            <span className="text-xs text-zinc-500">{t('settings.density')}</span>
+            <div className="flex gap-2">
+              {[true, false].map(half => (
+                <button
+                  key={String(half)}
+                  onClick={() => setSegAHalf(half)}
+                  className={`flex-1 py-2 rounded-lg border text-xs font-medium transition-colors ${
+                    segAHalf === half
+                      ? 'border-amber-400/60 text-amber-400 bg-amber-400/5'
+                      : 'border-zinc-700 text-zinc-400 hover:border-zinc-600'
+                  }`}
+                >
+                  {half ? t('settings.half') : t('settings.full')}
+                </button>
+              ))}
+            </div>
+          </div>
+          <Button
+            onClick={saveStrip}
+            disabled={rebooting}
+            size="sm"
+            className="w-full bg-amber-400 hover:bg-amber-300 text-zinc-950 font-semibold"
+          >
+            <ArrowCounterClockwise size={14} className="mr-1.5" />
+            {rebooting ? t('settings.rebooting') : t('settings.saveReboot')}
+          </Button>
         </div>
       </section>
 
@@ -76,20 +132,6 @@ export function SettingsTab({ state, update, send, scanProgress, foundTvs }: Pro
             <span className="text-zinc-400">IP</span>
             <span className="text-zinc-100 tabular-nums">{state.ip || '—'}</span>
           </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            size="sm"
-            variant="outline"
-            className="flex-1 border-zinc-700 text-zinc-300 hover:text-amber-400 hover:border-amber-400/40"
-            onClick={checkOta}
-          >
-            <ArrowClockwise size={14} className="mr-1.5" />
-            {t('settings.ota')}
-          </Button>
-          {otaStatus && (
-            <span className="text-xs text-zinc-500">{otaStatus}</span>
-          )}
         </div>
       </section>
 
@@ -157,8 +199,7 @@ export function SettingsTab({ state, update, send, scanProgress, foundTvs }: Pro
             value={state.ambPollMs}
             onChange={e => update({ ambPollMs: Number(e.target.value) })}
             placeholder={t('settings.pollInterval')}
-            min={50}
-            max={5000}
+            min={50} max={5000}
             className="bg-zinc-900 border-zinc-700 text-sm h-9 flex-1"
           />
           <Select value={state.ambMapping} onValueChange={v => update({ ambMapping: v })}>

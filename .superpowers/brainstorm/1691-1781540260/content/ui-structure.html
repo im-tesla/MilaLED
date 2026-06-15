@@ -1,0 +1,153 @@
+<h2>Web UI — Component Structure</h2>
+<p class="subtitle">All 4 tabs share the same persistent header + brightness bar. Swipe or tap tabs to navigate.</p>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:1rem">
+
+  <!-- Shared Header -->
+  <div style="grid-column:1/-1">
+    <div class="label">Always visible (all tabs)</div>
+    <div style="background:#09090b;border:1px solid #27272a;border-radius:10px;padding:10px 14px;margin-top:6px;font-family:system-ui">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="color:#fff;font-size:13px;font-weight:600">MilaLED</span>
+          <span style="width:6px;height:6px;border-radius:50%;background:#22c55e;display:inline-block"></span>
+          <span style="color:#71717a;font-size:10px">milaled.local</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="color:#71717a;font-size:10px">☀ Theme</span>
+          <div style="background:#22c55e;border-radius:20px;padding:3px 10px;font-size:9px;color:#000;font-weight:600">ON</div>
+        </div>
+      </div>
+      <!-- Brightness -->
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="color:#71717a;font-size:10px">Brightness</span>
+        <div style="flex:1;background:#27272a;border-radius:4px;height:5px;position:relative">
+          <div style="background:#fff;width:75%;height:100%;border-radius:4px"></div>
+          <div style="position:absolute;left:75%;top:50%;transform:translate(-50%,-50%);width:12px;height:12px;background:#fff;border-radius:50%;border:2px solid #09090b;box-shadow:0 0 0 2px #fff"></div>
+        </div>
+        <span style="color:#a1a1aa;font-size:10px;width:28px">75%</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tab 1: Effects -->
+  <div>
+    <div class="label">Tab 1 — Effects</div>
+    <div style="background:#09090b;border:1px solid #27272a;border-radius:10px;padding:10px;margin-top:6px;font-family:system-ui;min-height:180px">
+      <!-- Active effect banner -->
+      <div style="background:#18181b;border:1px solid #3f3f46;border-radius:8px;padding:7px 10px;margin-bottom:8px">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <span style="color:#fff;font-size:10px;font-weight:500">🔥 Fire 2012</span>
+          <span style="background:#fff;color:#000;border-radius:4px;padding:1px 6px;font-size:8px">ACTIVE</span>
+        </div>
+        <div style="display:flex;gap:6px;margin-top:6px">
+          <div style="flex:1">
+            <div style="color:#71717a;font-size:8px;margin-bottom:2px">Speed</div>
+            <div style="background:#27272a;border-radius:3px;height:3px"><div style="background:#fff;width:65%;height:100%;border-radius:3px"></div></div>
+          </div>
+          <div style="flex:1">
+            <div style="color:#71717a;font-size:8px;margin-bottom:2px">Intensity</div>
+            <div style="background:#27272a;border-radius:3px;height:3px"><div style="background:#fff;width:80%;height:100%;border-radius:3px"></div></div>
+          </div>
+        </div>
+      </div>
+      <!-- Effect grid -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px">
+        <div style="background:#18181b;border:1px solid #3f3f46;border-radius:6px;padding:5px 8px;font-size:9px;color:#a1a1aa">🌈 Rainbow</div>
+        <div style="background:#18181b;border:1px solid #3f3f46;border-radius:6px;padding:5px 8px;font-size:9px;color:#a1a1aa">🌊 Ocean</div>
+        <div style="background:#18181b;border:1px solid #3f3f46;border-radius:6px;padding:5px 8px;font-size:9px;color:#a1a1aa">✨ Twinkle</div>
+        <div style="background:#18181b;border:1px solid #3f3f46;border-radius:6px;padding:5px 8px;font-size:9px;color:#a1a1aa">💨 Breathe</div>
+        <div style="background:#18181b;border:1px solid #3f3f46;border-radius:6px;padding:5px 8px;font-size:9px;color:#a1a1aa">⚡ Cylon</div>
+        <div style="background:#18181b;border:1px solid #3f3f46;border-radius:6px;padding:5px 8px;font-size:9px;color:#a1a1aa">🎭 Comet</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tab 2: Color -->
+  <div>
+    <div class="label">Tab 2 — Color</div>
+    <div style="background:#09090b;border:1px solid #27272a;border-radius:10px;padding:10px;margin-top:6px;font-family:system-ui;min-height:180px">
+      <!-- Color wheel placeholder -->
+      <div style="display:flex;justify-content:center;margin-bottom:8px">
+        <div style="width:70px;height:70px;border-radius:50%;background:conic-gradient(from 0deg,#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00);position:relative;border:2px solid #27272a">
+          <div style="position:absolute;inset:12px;border-radius:50%;background:#09090b"></div>
+        </div>
+      </div>
+      <!-- Primary / Secondary swatches -->
+      <div style="display:flex;gap:6px;margin-bottom:8px">
+        <div style="flex:1;text-align:center">
+          <div style="color:#71717a;font-size:8px;margin-bottom:3px">Primary</div>
+          <div style="background:#FF4500;border-radius:6px;height:20px;border:2px solid #fff"></div>
+        </div>
+        <div style="flex:1;text-align:center">
+          <div style="color:#71717a;font-size:8px;margin-bottom:3px">Secondary</div>
+          <div style="background:#000080;border-radius:6px;height:20px;border:1px solid #3f3f46"></div>
+        </div>
+      </div>
+      <!-- Palette chips -->
+      <div style="color:#71717a;font-size:8px;margin-bottom:4px">Palette</div>
+      <div style="display:flex;gap-3px;flex-wrap:wrap;gap:3px">
+        <div style="background:linear-gradient(90deg,#f00,#ff0,#0f0,#00f);border-radius:4px;height:14px;width:38px;border:1px solid #3f3f46"></div>
+        <div style="background:linear-gradient(90deg,#ff4500,#ff8c00,#ffd700);border-radius:4px;height:14px;width:38px;border:1px solid #fff"></div>
+        <div style="background:linear-gradient(90deg,#006994,#0099cc,#87ceeb);border-radius:4px;height:14px;width:38px;border:1px solid #3f3f46"></div>
+        <div style="background:linear-gradient(90deg,#ff1493,#ff69b4,#800080);border-radius:4px;height:14px;width:38px;border:1px solid #3f3f46"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tab 3: Presets -->
+  <div>
+    <div class="label">Tab 3 — Presets</div>
+    <div style="background:#09090b;border:1px solid #27272a;border-radius:10px;padding:10px;margin-top:6px;font-family:system-ui;min-height:180px">
+      <div style="background:#18181b;border:1px solid #22c55e;border-radius:8px;padding:7px 10px;margin-bottom:6px">
+        <div style="color:#fff;font-size:9px;font-weight:500">Movie Night</div>
+        <div style="color:#71717a;font-size:8px">Fire 2012 · 45% · HeatColors</div>
+      </div>
+      <div style="background:#18181b;border:1px solid #3f3f46;border-radius:8px;padding:7px 10px;margin-bottom:6px">
+        <div style="color:#fff;font-size:9px;font-weight:500">Party Mode</div>
+        <div style="color:#71717a;font-size:8px">Rainbow · 100% · PartyColors</div>
+      </div>
+      <div style="background:#18181b;border:1px solid #3f3f46;border-radius:8px;padding:7px 10px;margin-bottom:6px">
+        <div style="color:#fff;font-size:9px;font-weight:500">Chill Ambient</div>
+        <div style="color:#71717a;font-size:8px">Ocean · 30% · OceanColors</div>
+      </div>
+      <div style="background:#18181b;border:2px dashed #3f3f46;border-radius:8px;padding:7px 10px;text-align:center">
+        <div style="color:#71717a;font-size:9px">+ Save current state</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tab 4: Settings -->
+  <div>
+    <div class="label">Tab 4 — Settings</div>
+    <div style="background:#09090b;border:1px solid #27272a;border-radius:10px;padding:10px;margin-top:6px;font-family:system-ui;min-height:180px">
+      <div style="color:#71717a;font-size:8px;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Strip</div>
+      <div style="background:#18181b;border:1px solid #3f3f46;border-radius:8px;padding:6px 10px;margin-bottom:6px;display:flex;justify-content:space-between">
+        <span style="color:#a1a1aa;font-size:9px">Seg A LEDs</span><span style="color:#fff;font-size:9px">120</span>
+      </div>
+      <div style="background:#18181b;border:1px solid #3f3f46;border-radius:8px;padding:6px 10px;margin-bottom:6px;display:flex;justify-content:space-between">
+        <span style="color:#a1a1aa;font-size:9px">Seg A density</span><span style="color:#22c55e;font-size:9px">Half (skip)</span>
+      </div>
+      <div style="background:#18181b;border:1px solid #3f3f46;border-radius:8px;padding:6px 10px;margin-bottom:6px;display:flex;justify-content:space-between">
+        <span style="color:#a1a1aa;font-size:9px">Seg B LEDs</span><span style="color:#fff;font-size:9px">58</span>
+      </div>
+      <div style="color:#71717a;font-size:8px;text-transform:uppercase;letter-spacing:1px;margin:6px 0 4px">Network</div>
+      <div style="background:#18181b;border:1px solid #3f3f46;border-radius:8px;padding:6px 10px;margin-bottom:4px;display:flex;justify-content:space-between">
+        <span style="color:#a1a1aa;font-size:9px">WiFi</span><span style="color:#22c55e;font-size:9px">HomeNetwork</span>
+      </div>
+      <div style="background:#18181b;border:1px solid #3f3f46;border-radius:8px;padding:6px 10px;display:flex;justify-content:space-between">
+        <span style="color:#a1a1aa;font-size:9px">OTA Update</span><span style="color:#60a5fa;font-size:9px">Check →</span>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="section" style="margin-top:1.5rem">
+  <div class="label">Tech stack</div>
+  <p style="color:var(--text-secondary);font-size:0.85rem;margin-top:4px">
+    React 18 + Vite · shadcn/ui + Tailwind CSS v3 · react-colorful (color wheel, ~2KB gz) · Framer Motion (tab transitions) · Native WebSocket API · Built to <code>data/</code> → gzipped → uploaded to LittleFS
+  </p>
+</div>
+
+<p class="subtitle" style="margin-top:1rem">Does this tab layout and component breakdown look right?</p>

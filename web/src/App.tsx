@@ -13,22 +13,14 @@ const WS_URL = `ws://${window.location.hostname}:81`
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<TabId>('effects')
-  const [isDark, setIsDark] = useState(true)
-  const { state, update, status, scanProgress, foundTvs, send } = useLedState(WS_URL)
-
-  const handleThemeToggle = () => {
-    setIsDark(d => !d)
-    document.documentElement.classList.toggle('dark')
-  }
+  const { state, update, status, scanProgress, foundTvs } = useLedState(WS_URL)
 
   return (
     <div className="min-h-[100dvh] flex flex-col bg-zinc-950">
       <Header
         state={state}
-        isDark={isDark}
         wsStatus={status}
         onPowerToggle={() => update({ power: !state.power })}
-        onThemeToggle={handleThemeToggle}
       />
       <BrightnessBar
         value={state.brightness}
@@ -57,7 +49,6 @@ export default function App() {
               <SettingsTab
                 state={state}
                 update={update}
-                send={send}
                 scanProgress={scanProgress}
                 foundTvs={foundTvs}
               />
