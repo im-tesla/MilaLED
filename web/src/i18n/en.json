@@ -23,7 +23,8 @@
       "breathing": "Breathing",
       "strobe": "Strobe",
       "perlinflow": "Perlin Flow",
-      "ambilight": "Philips Ambilight"
+      "ambilight": "Philips Ambilight",
+      "hyperion": "Hyperion / HyperHDR"
     }
   },
   "color": { "primary": "Primary", "secondary": "Secondary", "palette": "Palette" },
@@ -51,6 +52,7 @@
     "mappingRight": "Right",
     "mappingTop": "Top",
     "mappingAvg": "Average",
+    "hyperionPort": "UDP port",
     "scan": "Scan network",
     "scanning": "Scanning…",
     "stopScan": "Stop",

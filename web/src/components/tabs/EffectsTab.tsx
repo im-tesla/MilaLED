@@ -8,7 +8,7 @@ const EFFECT_IDS = [
   'solid', 'colortemp', 'rainbow', 'comet', 'cylon',
   'theater', 'running', 'fire2012', 'lava', 'ocean',
   'twinkle', 'meteor', 'sparkle', 'breathing', 'strobe',
-  'perlinflow', 'ambilight',
+  'perlinflow', 'ambilight', 'hyperion',
 ] as const
 
 type EffectId = typeof EFFECT_IDS[number]

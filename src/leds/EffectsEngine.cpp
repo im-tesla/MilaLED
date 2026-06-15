@@ -16,6 +16,7 @@
 #include "effects/StrobeEffect.cpp"
 #include "effects/PerlinFlowEffect.cpp"
 #include "effects/AmbilightEffect.cpp"
+#include "effects/HyperionEffect.cpp"
 
 static SolidEffect         _eSolid;
 static ColorTempEffect     _eColorTemp;
@@ -34,12 +35,13 @@ static BreathingEffect     _eBreathing;
 static StrobeEffect        _eStrobe;
 static PerlinFlowEffect    _ePerlinFlow;
 static AmbilightEffect     _eAmbilight;
+static HyperionEffect      _eHyperion;
 
 static EffectBase* _effectList[] = {
     &_eSolid, &_eColorTemp, &_eRainbow, &_eComet, &_eCylon,
     &_eTheaterChase, &_eRunning, &_eFire, &_eLava, &_eOcean,
     &_eTwinkle, &_eMeteor, &_eSparkle, &_eBreathing, &_eStrobe,
-    &_ePerlinFlow, &_eAmbilight
+    &_ePerlinFlow, &_eAmbilight, &_eHyperion
 };
 static const uint8_t EFFECT_COUNT = sizeof(_effectList) / sizeof(_effectList[0]);
 

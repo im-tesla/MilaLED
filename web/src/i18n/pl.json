@@ -23,7 +23,8 @@
       "breathing": "Oddychanie",
       "strobe": "Stroboskop",
       "perlinflow": "Przepływ Perlina",
-      "ambilight": "Philips Ambilight"
+      "ambilight": "Philips Ambilight",
+      "hyperion": "Hyperion / HyperHDR"
     }
   },
   "color": { "primary": "Główny", "secondary": "Dodatkowy", "palette": "Paleta" },
@@ -51,6 +52,7 @@
     "mappingRight": "Prawy",
     "mappingTop": "Górny",
     "mappingAvg": "Średnia",
+    "hyperionPort": "Port UDP",
     "scan": "Skanuj sieć",
     "scanning": "Skanowanie…",
     "stopScan": "Zatrzymaj",
