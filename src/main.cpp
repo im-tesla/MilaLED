@@ -21,6 +21,13 @@ void setup() {
     cfgStore.load(cfg);  // loads saved config or uses defaults
 
     engine.begin(cfg);   // allocates LED arrays, sets up FastLED
+    engine.setStatus(EffectsEngine::STATUS_BOOTING);  // blue pulse
+
+    // Run a few ticks so the boot indicator actually shows on the strip
+    for (uint8_t i = 0; i < 5; i++) {
+        engine.tick();
+        delay(20);
+    }
 
     network.begin("MilaLED");  // AP+STA WiFi, blocks until connected or timeout
 
@@ -30,6 +37,13 @@ void setup() {
 
     ArduinoOTA.setHostname("milaled");
     ArduinoOTA.begin();
+
+    // Show status on strip: green if connected, yellow blink if AP mode
+    if (network.isConnected()) {
+        engine.setStatus(EffectsEngine::STATUS_OK);
+    } else {
+        engine.setStatus(EffectsEngine::STATUS_AP_MODE);
+    }
 
     Serial.println("MilaLED ready");
 }

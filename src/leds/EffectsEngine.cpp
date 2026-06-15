@@ -143,10 +143,50 @@ void EffectsEngine::applyConfig(const Config& cfg) {
 }
 
 void EffectsEngine::tick() {
-    if (!_active) return;
     uint32_t now = millis();
     if (now - _lastTick < _frameMs) return;
     _lastTick = now;
+
+    if (!_leds || _physCount == 0) return;
+
+    // ── System status indicator ──────────────────────────
+    if (_status != STATUS_NONE) {
+        uint32_t elapsed = now - _statusStart;
+        uint8_t  cycle   = (elapsed / 300) & 0xFF;  // 300ms per phase
+
+        switch (_status) {
+            case STATUS_BOOTING: {
+                // Blue pulse — breathing between dim and bright
+                uint8_t b = beatsin8(25, 30, 180, 0, 0);
+                fill_solid(_leds, _physCount, CRGB(0, 0, b));
+                break;
+            }
+            case STATUS_AP_MODE: {
+                // Yellow blink every 600ms
+                bool on = (elapsed % 600) < 300;
+                fill_solid(_leds, _physCount, on ? CRGB(255, 160, 0) : CRGB::Black);
+                break;
+            }
+            case STATUS_OK: {
+                // Green — solid for 2s then switch to normal effect
+                if (elapsed < 2000) {
+                    fill_solid(_leds, _physCount, CRGB(0, 255, 0));
+                } else {
+                    _status = STATUS_NONE;
+                    // fall through to normal effect below
+                }
+                break;
+            }
+            default:
+                _status = STATUS_NONE;
+                break;
+        }
+        FastLED.show();
+        if (_status != STATUS_NONE) return;
+    }
+    // ── End status indicator ─────────────────────────────
+
+    if (!_active) return;
 
     _active->tick(_vbuf, _virtCount, _params);
     flushVirtualToPhysical();
