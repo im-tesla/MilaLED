@@ -4,6 +4,25 @@ ESP8266-based Wi-Fi LED strip controller with a modern mobile-first web interfac
 
 **Works with:** WS2811, WS2812B, WS2815, WS2813, SK6812 | RGB, GRB, and more
 
+<table align="center"><tr>
+<td align="center" width="195">
+  <img src="assets/screenshots/effects.png" width="180" alt="Effects tab" style="border-radius:24px;border:3px solid #27272a" /><br/>
+  <sub>Effects</sub>
+</td>
+<td align="center" width="195">
+  <img src="assets/screenshots/color.png" width="180" alt="Color tab" style="border-radius:24px;border:3px solid #27272a" /><br/>
+  <sub>Color</sub>
+</td>
+<td align="center" width="195">
+  <img src="assets/screenshots/presets.png" width="180" alt="Presets tab" style="border-radius:24px;border:3px solid #27272a" /><br/>
+  <sub>Presets</sub>
+</td>
+<td align="center" width="195">
+  <img src="assets/screenshots/settings.png" width="180" alt="Settings tab" style="border-radius:24px;border:3px solid #27272a" /><br/>
+  <sub>Settings</sub>
+</td>
+</tr></table>
+
 ## Features
 
 - **17 animated effects** — Rainbow, Fire, Comet, Ocean, Breathing, Strobe, and more
