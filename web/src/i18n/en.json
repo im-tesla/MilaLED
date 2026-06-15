@@ -1,0 +1,32 @@
+{
+  "header": { "on": "ON", "off": "OFF", "theme": "Theme" },
+  "brightness": "Brightness",
+  "tabs": { "effects": "Effects", "color": "Color", "presets": "Presets", "settings": "Settings" },
+  "effects": { "active": "Active", "speed": "Speed", "intensity": "Intensity" },
+  "color": { "primary": "Primary", "secondary": "Secondary", "palette": "Palette" },
+  "presets": { "save": "Save current state", "load": "Load", "delete": "Delete", "name": "Preset name" },
+  "settings": {
+    "strip": "Strip",
+    "segA": "Seg A LEDs",
+    "segB": "Seg B LEDs",
+    "density": "Seg A density",
+    "half": "Half (skip)",
+    "full": "Full",
+    "network": "Network",
+    "wifi": "WiFi",
+    "ota": "OTA Update",
+    "check": "Check",
+    "ambilight": "Ambilight",
+    "tvIp": "TV IP",
+    "pollInterval": "Poll interval (ms)",
+    "mapping": "Mapping mode",
+    "mappingLeft": "Left",
+    "mappingRight": "Right",
+    "mappingTop": "Top",
+    "mappingAvg": "Average",
+    "scan": "Scan network",
+    "scanning": "Scanning...",
+    "language": "Language"
+  },
+  "ambilight": { "status": "Status", "polling": "Polling", "idle": "Idle", "error": "Error" }
+}

@@ -1,0 +1,32 @@
+{
+  "header": { "on": "WŁ", "off": "WYŁ", "theme": "Motyw" },
+  "brightness": "Jasność",
+  "tabs": { "effects": "Efekty", "color": "Kolor", "presets": "Presety", "settings": "Ustawienia" },
+  "effects": { "active": "Aktywny", "speed": "Prędkość", "intensity": "Intensywność" },
+  "color": { "primary": "Główny", "secondary": "Dodatkowy", "palette": "Paleta" },
+  "presets": { "save": "Zapisz stan", "load": "Wczytaj", "delete": "Usuń", "name": "Nazwa presetu" },
+  "settings": {
+    "strip": "Taśma",
+    "segA": "LED seg A",
+    "segB": "LED seg B",
+    "density": "Gęstość seg A",
+    "half": "Połowa (pomiń)",
+    "full": "Pełna",
+    "network": "Sieć",
+    "wifi": "WiFi",
+    "ota": "Aktualizacja OTA",
+    "check": "Sprawdź",
+    "ambilight": "Ambilight",
+    "tvIp": "IP telewizora",
+    "pollInterval": "Interwał (ms)",
+    "mapping": "Tryb mapowania",
+    "mappingLeft": "Lewy",
+    "mappingRight": "Prawy",
+    "mappingTop": "Górny",
+    "mappingAvg": "Średnia",
+    "scan": "Skanuj sieć",
+    "scanning": "Skanowanie...",
+    "language": "Język"
+  },
+  "ambilight": { "status": "Status", "polling": "Pobieranie", "idle": "Bezczynny", "error": "Błąd" }
+}
