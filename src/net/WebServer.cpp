@@ -82,8 +82,15 @@ void MilaWebServer::begin(Config* cfg, ConfigStore* store, EffectsEngine* engine
         _http.send(200, "application/json", "{\"ok\":true}");
     });
 
-    // REST: ambilight scan (triggers async scan, progress comes back via WebSocket)
-    _http.on("/api/ambilight/scan", HTTP_POST, [this]() { handleAmbilightScan(); });
+    // REST: ambilight scan — starts async scan; progress comes via WebSocket
+    _http.on("/api/ambilight/scan", HTTP_POST, [this]() {
+        if (_scanActive) { _http.send(409, "application/json", "{\"error\":\"scan already running\"}"); return; }
+        _scanActive = true;
+        _scanCancel = false;
+        _scanIp = 1;
+        _scanBase = WiFi.localIP();
+        _http.send(200, "application/json", "{\"ok\":true}");
+    });
 
     // REST: cancel running ambilight scan
     _http.on("/api/ambilight/scan/cancel", HTTP_POST, [this]() {
@@ -102,7 +109,7 @@ void MilaWebServer::begin(Config* cfg, ConfigStore* store, EffectsEngine* engine
 
     // REST: strip config — saves and restarts so FastLED reinitialises
     _http.on("/api/strip", HTTP_POST, [this]() {
-        StaticJsonDocument<128> doc;
+        StaticJsonDocument<256> doc;  // 7 fields need ~170 bytes JSON
         if (deserializeJson(doc, _http.arg("plain"))) {
             _http.send(400, "application/json", "{\"error\":\"bad json\"}");
             return;
@@ -130,6 +137,45 @@ void MilaWebServer::begin(Config* cfg, ConfigStore* store, EffectsEngine* engine
 void MilaWebServer::loop() {
     _http.handleClient();
     _ws.loop();
+
+    // Non-blocking ambilight scan: one IP per loop iteration
+    if (_scanActive) {
+        if (_scanCancel || _scanIp > 254) {
+            // scan done or cancelled
+            StaticJsonDocument<64> done;
+            done["type"] = "scanProgress";
+            done["pct"]  = 100;
+            done["msg"]  = _scanCancel ? "cancelled" : "done";
+            String out;
+            serializeJson(done, out);
+            _ws.broadcastTXT(out.c_str());
+            _scanActive = false;
+        } else {
+            char ipBuf[16];
+            snprintf(ipBuf, sizeof(ipBuf), "%d.%d.%d.%d", _scanBase[0], _scanBase[1], _scanBase[2], _scanIp);
+            broadcastScanProgress((uint8_t)((_scanIp * 100) / 254), ipBuf);
+
+            WiFiClient client;
+            HTTPClient http;
+            String url = String("http://") + ipBuf + ":1925/ambilight/processed";
+            http.begin(client, url);
+            http.setTimeout(80);  // responsive hosts reply <5ms; DHCP gaps take ~80ms
+            if (http.GET() == 200) {
+                StaticJsonDocument<64> probe;
+                if (!deserializeJson(probe, http.getStream()) && probe.containsKey("layer1")) {
+                    StaticJsonDocument<64> resp;
+                    resp["type"] = "ambilightFound";
+                    resp["ip"]   = ipBuf;
+                    String out;
+                    serializeJson(resp, out);
+                    _ws.broadcastTXT(out.c_str());
+                }
+            }
+            http.end();
+            _scanIp++;
+        }
+    }
+
     if (_pendingRestart) {
         delay(200); // let HTTP response flush
         ESP.restart();
@@ -216,46 +262,6 @@ void MilaWebServer::handleRestPresets() {
     String out;
     serializeJson(doc, out);
     _http.send(200, "application/json", out);
-}
-
-void MilaWebServer::handleAmbilightScan() {
-    _scanCancel = false;
-    IPAddress base = WiFi.localIP();
-    WiFiClient client;
-    HTTPClient http;
-    for (uint16_t i = 1; i <= 254; i++) {
-        if (_scanCancel) break;
-        yield(); // prevent watchdog reset
-        char ipBuf[16];
-        snprintf(ipBuf, sizeof(ipBuf), "%d.%d.%d.%d", base[0], base[1], base[2], i);
-        broadcastScanProgress((uint8_t)((i * 100) / 254), ipBuf);
-
-        String url = String("http://") + ipBuf + ":1925/ambilight/processed";
-        http.begin(client, url);
-        http.setTimeout(40);   // LAN: responsive hosts reply <5ms, dead ones get 40ms
-        if (http.GET() == 200) {
-            // verify it's a Philips TV (has "layer1" key)
-            StaticJsonDocument<64> probe;
-            if (!deserializeJson(probe, http.getStream()) && probe.containsKey("layer1")) {
-                StaticJsonDocument<64> resp;
-                resp["type"] = "ambilightFound";
-                resp["ip"]   = ipBuf;
-                String out;
-                serializeJson(resp, out);
-                _ws.broadcastTXT(out.c_str());
-            }
-        }
-        http.end();
-    }
-    // signal scan done
-    StaticJsonDocument<64> done;
-    done["type"] = "scanProgress";
-    done["pct"]  = 100;
-    done["msg"]  = _scanCancel ? "cancelled" : "done";
-    String out;
-    serializeJson(done, out);
-    _ws.broadcastTXT(out.c_str());
-    _http.send(200, "application/json", "{\"ok\":true}");
 }
 
 String MilaWebServer::buildStateJson() {

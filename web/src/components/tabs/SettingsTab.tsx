@@ -59,6 +59,8 @@ export function SettingsTab({ state, update, scanProgress, foundTvs }: Props) {
   const localVirt = Math.floor(segALeds / (segAHalf ? 2 : 1)) + Math.floor(segBLeds / (segBHalf ? 2 : 1))
 
   // Sync local strip state when WebSocket pushes fresh state (e.g. after reconnect)
+  // Use a compound key so any strip field change triggers resync — more robust
+  // than individual dependency tracking.
   useEffect(() => {
     setSegALeds(state.segALeds)
     setSegBLeds(state.segBLeds)
