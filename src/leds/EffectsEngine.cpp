@@ -56,6 +56,15 @@ void EffectsEngine::begin(const Config& cfg) {
 
     // FastLED pin, chipset, and color order are compile-time template constants.
     // Macros generate the cross-product of (chipset × color order × pin).
+    // ESP32-C3 only has GPIO 0-10, 18-21 — pins 12/13/14 don't exist.
+#if defined(CONFIG_IDF_TARGET_ESP32C3) || defined(CONFIG_IDF_TARGET_ESP32C6)
+#define LED_PIN_CASES(CHIP, ORDER) \
+    switch (cfg.dataPin) { \
+        case  4: FastLED.addLeds<CHIP,  4, ORDER>(_leds, _physCount); break; \
+        case  5: FastLED.addLeds<CHIP,  5, ORDER>(_leds, _physCount); break; \
+        default: FastLED.addLeds<CHIP,  2, ORDER>(_leds, _physCount); break; \
+    }
+#else
 #define LED_PIN_CASES(CHIP, ORDER) \
     switch (cfg.dataPin) { \
         case  4: FastLED.addLeds<CHIP,  4, ORDER>(_leds, _physCount); break; \
@@ -65,6 +74,7 @@ void EffectsEngine::begin(const Config& cfg) {
         case 14: FastLED.addLeds<CHIP, 14, ORDER>(_leds, _physCount); break; \
         default: FastLED.addLeds<CHIP,  2, ORDER>(_leds, _physCount); break; \
     }
+#endif
 
 #define ORDER_CASES(CHIP) \
     switch (cfg.colorOrder) { \
