@@ -116,7 +116,7 @@ export function SettingsTab({ state, update, scanProgress, foundTvs }: Props) {
                 value={segALeds}
                 onChange={e => setSegALeds(Number(e.target.value))}
                 min={1} max={500}
-                className="bg-zinc-800 border-zinc-700 text-sm h-9"
+                className="bg-zinc-900 border-zinc-700 text-zinc-100 text-sm h-9"
               />
             </div>
             <div className="space-y-1">
@@ -126,7 +126,7 @@ export function SettingsTab({ state, update, scanProgress, foundTvs }: Props) {
                 value={segBLeds}
                 onChange={e => setSegBLeds(Number(e.target.value))}
                 min={0} max={500}
-                className="bg-zinc-800 border-zinc-700 text-sm h-9"
+                className="bg-zinc-900 border-zinc-700 text-zinc-100 text-sm h-9"
               />
             </div>
           </div>
@@ -187,7 +187,7 @@ export function SettingsTab({ state, update, scanProgress, foundTvs }: Props) {
           <div className="space-y-1">
             <span className="text-xs text-zinc-500">{t('settings.colorOrder')}</span>
             <Select value={String(colorOrder)} onValueChange={v => setColorOrder(Number(v))}>
-              <SelectTrigger className="bg-zinc-800 border-zinc-700 text-sm h-9 w-full">
+              <SelectTrigger className="bg-zinc-900 border-zinc-700 text-zinc-100 text-sm h-9 w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent className="bg-zinc-900 border-zinc-800">
@@ -202,7 +202,7 @@ export function SettingsTab({ state, update, scanProgress, foundTvs }: Props) {
           <div className="space-y-1">
             <span className="text-xs text-zinc-500">{t('settings.chipset')}</span>
             <Select value={String(chipset)} onValueChange={v => setChipset(Number(v))}>
-              <SelectTrigger className="bg-zinc-800 border-zinc-700 text-sm h-9 w-full">
+              <SelectTrigger className="bg-zinc-900 border-zinc-700 text-zinc-100 text-sm h-9 w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent className="bg-zinc-900 border-zinc-800">
@@ -289,7 +289,7 @@ export function SettingsTab({ state, update, scanProgress, foundTvs }: Props) {
             value={state.tvIp}
             onChange={e => update({ tvIp: e.target.value })}
             placeholder={t('settings.tvIp')}
-            className="bg-zinc-900 border-zinc-700 text-sm h-9 flex-1"
+            className="bg-zinc-900 border-zinc-700 text-zinc-100 text-sm h-9 flex-1"
           />
           {scanProgress ? (
             <Button
@@ -351,10 +351,10 @@ export function SettingsTab({ state, update, scanProgress, foundTvs }: Props) {
             onChange={e => update({ ambPollMs: Number(e.target.value) })}
             placeholder={t('settings.pollInterval')}
             min={50} max={5000}
-            className="bg-zinc-900 border-zinc-700 text-sm h-9 flex-1"
+            className="bg-zinc-900 border-zinc-700 text-zinc-100 text-sm h-9 flex-1"
           />
           <Select value={state.ambMapping} onValueChange={v => update({ ambMapping: v })}>
-            <SelectTrigger className="bg-zinc-900 border-zinc-700 text-sm h-9 flex-1">
+            <SelectTrigger className="bg-zinc-900 border-zinc-700 text-zinc-100 text-sm h-9 flex-1">
               <SelectValue />
             </SelectTrigger>
             <SelectContent className="bg-zinc-900 border-zinc-800">
