@@ -7,27 +7,30 @@
 void MilaWebServer::begin(Config* cfg, ConfigStore* store, EffectsEngine* engine) {
     _cfg = cfg; _store = store; _engine = engine;
 
-    // Serve gzipped React app — set Content-Encoding header for .gz files
+    // Serve gzipped React app.
+    // streamFile() auto-adds Content-Encoding: gzip when filename ends in .gz — no manual header needed.
     _http.on("/", HTTP_GET, [this]() {
         File f = LittleFS.open("/index.html.gz", "r");
         if (!f) { _http.send(404, "text/plain", "Not found"); return; }
-        _http.sendHeader("Content-Encoding", "gzip");
         _http.streamFile(f, "text/html");
         f.close();
     });
 
-    // Serve other assets with gzip encoding
+    // Serve other assets; look for .gz variant first.
     _http.onNotFound([this]() {
         String path = _http.uri();
         String gzPath = path + ".gz";
         if (LittleFS.exists(gzPath)) {
             File f = LittleFS.open(gzPath, "r");
-            String contentType = "application/octet-stream";
-            if (path.endsWith(".js"))  contentType = "application/javascript";
-            if (path.endsWith(".css")) contentType = "text/css";
-            if (path.endsWith(".json")) contentType = "application/json";
+            String contentType = "text/plain";
+            if (path.endsWith(".js"))    contentType = "application/javascript";
+            if (path.endsWith(".css"))   contentType = "text/css";
+            if (path.endsWith(".json"))  contentType = "application/json";
+            if (path.endsWith(".svg"))   contentType = "image/svg+xml";
             if (path.endsWith(".woff2")) contentType = "font/woff2";
-            _http.sendHeader("Content-Encoding", "gzip");
+            if (path.endsWith(".html"))  contentType = "text/html";
+            // streamFile auto-adds Content-Encoding: gzip for .gz files (unless type is
+            // application/octet-stream or application/x-gzip, so we never use those).
             _http.streamFile(f, contentType);
             f.close();
         } else if (LittleFS.exists(path)) {
@@ -35,10 +38,9 @@ void MilaWebServer::begin(Config* cfg, ConfigStore* store, EffectsEngine* engine
             _http.streamFile(f, "text/plain");
             f.close();
         } else {
-            // SPA fallback: serve index.html for client-side routing
+            // SPA fallback: serve index.html for any unknown path (client-side routing).
             File f = LittleFS.open("/index.html.gz", "r");
             if (f) {
-                _http.sendHeader("Content-Encoding", "gzip");
                 _http.streamFile(f, "text/html");
                 f.close();
             } else {
