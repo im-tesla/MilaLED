@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { WifiHigh, MagnifyingGlass, ArrowCounterClockwise } from '@phosphor-icons/react'
 import { AmbilightStatus } from '@/components/shared/AmbilightStatus'
@@ -12,6 +12,15 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import type { LedState } from '@/hooks/useLedState'
+
+const ESP_PINS: { gpio: number; label: string }[] = [
+  { gpio: 5,  label: 'D1 (GPIO5)' },
+  { gpio: 4,  label: 'D2 (GPIO4)' },
+  { gpio: 2,  label: 'D4 (GPIO2)' },
+  { gpio: 14, label: 'D5 (GPIO14)' },
+  { gpio: 12, label: 'D6 (GPIO12)' },
+  { gpio: 13, label: 'D7 (GPIO13)' },
+]
 
 const MAPPING_OPTIONS: { value: string; key: string }[] = [
   { value: 'right',   key: 'settings.mappingRight' },
@@ -34,20 +43,39 @@ export function SettingsTab({ state, update, scanProgress, foundTvs }: Props) {
   const [segALeds, setSegALeds] = useState(state.segALeds)
   const [segBLeds, setSegBLeds] = useState(state.segBLeds)
   const [segAHalf, setSegAHalf] = useState(state.segAHalf)
+  const [dataPin,  setDataPin]  = useState(state.dataPin)
   const [rebooting, setRebooting] = useState(false)
+  const [confirmWifi, setConfirmWifi] = useState(false)
+  const [wifiResetting, setWifiResetting] = useState(false)
+
+  // Sync local strip state when WebSocket pushes fresh state (e.g. after reconnect)
+  useEffect(() => {
+    setSegALeds(state.segALeds)
+    setSegBLeds(state.segBLeds)
+    setSegAHalf(state.segAHalf)
+    setDataPin(state.dataPin)
+  }, [state.segALeds, state.segBLeds, state.segAHalf, state.dataPin])
 
   const saveStrip = async () => {
     setRebooting(true)
     await fetch('/api/strip', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ segALeds, segBLeds, segAHalf }),
+      body: JSON.stringify({ segALeds, segBLeds, segAHalf, dataPin }),
     }).catch(() => {})
-    // ESP restarts — WebSocket will reconnect automatically
+    // ESP restarts — WebSocket will reconnect automatically.
+    // Reset rebooting state after a generous timeout in case the restart takes longer.
+    setTimeout(() => setRebooting(false), 15000)
   }
 
   const startScan = () => {
     fetch('/api/ambilight/scan', { method: 'POST' }).catch(() => {})
+  }
+
+  const resetWifi = async () => {
+    setWifiResetting(true)
+    await fetch('/api/wifi/reset', { method: 'POST' }).catch(() => {})
+    // ESP will restart into AP mode — connection lost
   }
 
   return (
@@ -103,6 +131,24 @@ export function SettingsTab({ state, update, scanProgress, foundTvs }: Props) {
               ))}
             </div>
           </div>
+          <div className="space-y-1">
+            <span className="text-xs text-zinc-500">{t('settings.dataPin')}</span>
+            <div className="grid grid-cols-3 gap-1.5">
+              {ESP_PINS.map(({ gpio, label }) => (
+                <button
+                  key={gpio}
+                  onClick={() => setDataPin(gpio)}
+                  className={`py-2 rounded-lg border text-xs font-medium transition-colors ${
+                    dataPin === gpio
+                      ? 'border-amber-400/60 text-amber-400 bg-amber-400/5'
+                      : 'border-zinc-700 text-zinc-400 hover:border-zinc-600'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
           <Button
             onClick={saveStrip}
             disabled={rebooting}
@@ -131,6 +177,35 @@ export function SettingsTab({ state, update, scanProgress, foundTvs }: Props) {
           <div className="p-3 flex items-center justify-between text-sm">
             <span className="text-zinc-400">IP</span>
             <span className="text-zinc-100 tabular-nums">{state.ip || '—'}</span>
+          </div>
+          <div className="p-3 space-y-2">
+            {!confirmWifi ? (
+              <button
+                onClick={() => setConfirmWifi(true)}
+                className="w-full text-xs py-2 rounded-lg border border-zinc-700 text-zinc-400 hover:border-zinc-600 hover:text-zinc-300 transition-colors"
+              >
+                {t('settings.wifiChange')}
+              </button>
+            ) : (
+              <div className="space-y-2">
+                <p className="text-[11px] text-zinc-500">{t('settings.wifiChangeConfirm')}</p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={resetWifi}
+                    disabled={wifiResetting}
+                    className="flex-1 text-xs py-2 rounded-lg border border-red-500/50 text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50"
+                  >
+                    {wifiResetting ? t('settings.rebooting') : t('settings.confirm')}
+                  </button>
+                  <button
+                    onClick={() => setConfirmWifi(false)}
+                    className="flex-1 text-xs py-2 rounded-lg border border-zinc-700 text-zinc-400 hover:border-zinc-600 transition-colors"
+                  >
+                    {t('settings.cancel')}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </section>
@@ -226,7 +301,7 @@ export function SettingsTab({ state, update, scanProgress, foundTvs }: Props) {
           {(['en', 'pl'] as const).map(lang => (
             <button
               key={lang}
-              onClick={() => i18n.changeLanguage(lang)}
+              onClick={() => { i18n.changeLanguage(lang); localStorage.setItem('lang', lang) }}
               className={`flex-1 py-2 rounded-xl border text-sm font-medium transition-colors ${
                 i18n.language === lang
                   ? 'border-amber-400/60 text-amber-400 bg-amber-400/5'

@@ -5,7 +5,7 @@ import pl from './pl.json'
 
 i18n.use(initReactI18next).init({
   resources: { en: { translation: en }, pl: { translation: pl } },
-  lng: navigator.language.startsWith('pl') ? 'pl' : 'en',
+  lng: localStorage.getItem('lang') || (navigator.language.startsWith('pl') ? 'pl' : 'en'),
   fallbackLng: 'en',
   interpolation: { escapeValue: false },
 })

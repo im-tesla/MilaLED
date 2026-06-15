@@ -12,7 +12,7 @@ static EffectsEngine  engine;
 static NetworkManager network;
 static MilaWebServer  webServer;
 
-static uint32_t lastBroadcast = 0;
+static uint32_t lastSave = 0;
 
 void setup() {
     Serial.begin(115200);
@@ -40,8 +40,10 @@ void loop() {
     engine.tick();           // LED frame update (20ms throttled)
     ArduinoOTA.handle();     // OTA update check
 
-    if (millis() - lastBroadcast > 5000) {
-        lastBroadcast = millis();
-        webServer.broadcastState();
+    // Persist continuous params (brightness/speed/etc.) every 30s without broadcasting.
+    // Discrete params (effect/power/palette) are saved immediately in handleWsMessage.
+    if (millis() - lastSave > 30000) {
+        lastSave = millis();
+        cfgStore.save(cfg);
     }
 }

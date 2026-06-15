@@ -6,6 +6,7 @@
   /* shadcn v2.3 HSL format — values are raw HSL channels (no hsl() wrapper here)
      so Tailwind's hsl(var(--xxx)) substitution works correctly */
   :root {
+    color-scheme: light;
     --background: 0 0% 100%;
     --foreground: 240 10% 4%;
     --card: 0 0% 100%;
@@ -28,6 +29,7 @@
   }
 
   .dark {
+    color-scheme: dark;
     --background: 240 10% 4%;      /* zinc-950 */
     --foreground: 0 0% 98%;        /* zinc-50  */
     --card: 240 5% 11%;            /* zinc-900 */
@@ -53,3 +55,38 @@
   * { @apply border-border; }
   body { @apply bg-background text-foreground; }
 }
+
+/* Light mode: remap hardcoded dark zinc utilities without touching component files.
+   Specificity (0,3,0) beats Tailwind utilities (0,1,0) — no !important needed. */
+
+/* backgrounds */
+:root:not(.dark) .bg-zinc-950       { background-color: #fafafa; }
+:root:not(.dark) .bg-zinc-950\/95   { background-color: rgb(250 250 250 / 0.95); }  /* TabBar */
+:root:not(.dark) .bg-zinc-900       { background-color: #ffffff; }
+:root:not(.dark) .bg-zinc-800       { background-color: #f4f4f5; }
+:root:not(.dark) .bg-zinc-700       { background-color: #e4e4e7; }  /* slider track */
+
+/* text */
+:root:not(.dark) .text-zinc-100     { color: #18181b; }
+:root:not(.dark) .text-zinc-300     { color: #52525b; }
+:root:not(.dark) .text-zinc-400     { color: #52525b; }
+:root:not(.dark) .text-zinc-500     { color: #71717a; }
+
+/* hover text — dark mode uses lighter grays on hover; light mode needs darker ones */
+:root:not(.dark) .hover\:text-zinc-200:hover { color: #27272a; }
+:root:not(.dark) .hover\:text-zinc-300:hover { color: #3f3f46; }
+
+/* borders */
+:root:not(.dark) .border-zinc-800   { border-color: #e4e4e7; }
+:root:not(.dark) .border-zinc-700   { border-color: #d4d4d8; }
+:root:not(.dark) .divide-zinc-800 > :not([hidden]) ~ :not([hidden]) { border-color: #e4e4e7; }
+
+/* hover borders */
+:root:not(.dark) .hover\:border-zinc-600:hover { border-color: #a1a1aa; }
+:root:not(.dark) .hover\:border-zinc-700:hover  { border-color: #a1a1aa; }
+
+/* focus / interactive states */
+:root:not(.dark) .focus\:bg-zinc-800:focus      { background-color: #f4f4f5; }
+
+/* slider thumb ring offset */
+:root:not(.dark) .ring-offset-zinc-950 { --tw-ring-offset-color: #fafafa; }

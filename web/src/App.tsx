@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import { Header } from '@/components/layout/Header'
 import { BrightnessBar } from '@/components/layout/BrightnessBar'
@@ -14,13 +14,21 @@ const WS_URL = `ws://${window.location.hostname}:81`
 export default function App() {
   const [activeTab, setActiveTab] = useState<TabId>('effects')
   const { state, update, status, scanProgress, foundTvs } = useLedState(WS_URL)
+  const [isDark, setIsDark] = useState(() => localStorage.getItem('theme') !== 'light')
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', isDark)
+    localStorage.setItem('theme', isDark ? 'dark' : 'light')
+  }, [isDark])
 
   return (
-    <div className="min-h-[100dvh] flex flex-col bg-zinc-950">
+    <div className="min-h-[100dvh] flex flex-col bg-background">
       <Header
         state={state}
         wsStatus={status}
         onPowerToggle={() => update({ power: !state.power })}
+        isDark={isDark}
+        onThemeToggle={() => setIsDark(d => !d)}
       />
       <BrightnessBar
         value={state.brightness}

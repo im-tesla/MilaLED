@@ -3,6 +3,7 @@
 #include <ArduinoJson.h>
 #include <ESP8266HTTPClient.h>
 #include <WiFiClient.h>
+#include <WiFiManager.h>
 
 void MilaWebServer::begin(Config* cfg, ConfigStore* store, EffectsEngine* engine) {
     _cfg = cfg; _store = store; _engine = engine;
@@ -83,6 +84,15 @@ void MilaWebServer::begin(Config* cfg, ConfigStore* store, EffectsEngine* engine
     // REST: ambilight scan (triggers async scan, progress comes back via WebSocket)
     _http.on("/api/ambilight/scan", HTTP_POST, [this]() { handleAmbilightScan(); });
 
+    // REST: erase WiFi credentials and restart into AP/captive-portal mode
+    _http.on("/api/wifi/reset", HTTP_POST, [this]() {
+        _http.send(200, "application/json", "{\"ok\":true}");
+        delay(300);
+        WiFiManager wm;
+        wm.resetSettings();
+        ESP.restart();
+    });
+
     // REST: strip config — saves and restarts so FastLED reinitialises
     _http.on("/api/strip", HTTP_POST, [this]() {
         StaticJsonDocument<128> doc;
@@ -93,6 +103,7 @@ void MilaWebServer::begin(Config* cfg, ConfigStore* store, EffectsEngine* engine
         if (doc.containsKey("segALeds")) _cfg->segALeds = doc["segALeds"];
         if (doc.containsKey("segBLeds")) _cfg->segBLeds = doc["segBLeds"];
         if (doc.containsKey("segAHalf")) _cfg->segAHalf = doc["segAHalf"].as<bool>();
+        if (doc.containsKey("dataPin"))  _cfg->dataPin  = doc["dataPin"];
         _store->save(*_cfg);
         _http.send(200, "application/json", "{\"ok\":true}");
         _pendingRestart = true;
@@ -148,32 +159,35 @@ void MilaWebServer::handleWsMessage(const char* json) {
     StaticJsonDocument<256> doc;
     if (deserializeJson(doc, json)) return;
 
-    bool changed = false;
-    if (doc.containsKey("power"))          { _cfg->power = doc["power"]; changed = true; }
-    if (doc.containsKey("brightness"))     { _cfg->brightness = doc["brightness"]; changed = true; }
-    if (doc.containsKey("effect"))         { strlcpy(_cfg->effect, doc["effect"] | "", sizeof(_cfg->effect)); changed = true; }
-    if (doc.containsKey("speed"))          { _cfg->speed = doc["speed"]; changed = true; }
-    if (doc.containsKey("intensity"))      { _cfg->intensity = doc["intensity"]; changed = true; }
+    bool anyChanged      = false;
+    bool discreteChanged = false; // needs save + broadcast
+
+    // Continuous params: update config + LEDs immediately, but do NOT save or echo
+    // (echoing would fight the slider and cause teleport-back jitter)
+    if (doc.containsKey("brightness")) { _cfg->brightness = doc["brightness"]; anyChanged = true; }
+    if (doc.containsKey("speed"))      { _cfg->speed      = doc["speed"];      anyChanged = true; }
+    if (doc.containsKey("intensity"))  { _cfg->intensity  = doc["intensity"];  anyChanged = true; }
     if (doc.containsKey("colorPrimary")) {
         const char* hex = doc["colorPrimary"];
         if (hex && hex[0] == '#') _cfg->colorPrimary = strtoul(hex + 1, nullptr, 16);
-        changed = true;
+        anyChanged = true;
     }
     if (doc.containsKey("colorSecondary")) {
         const char* hex = doc["colorSecondary"];
         if (hex && hex[0] == '#') _cfg->colorSecondary = strtoul(hex + 1, nullptr, 16);
-        changed = true;
+        anyChanged = true;
     }
-    if (doc.containsKey("palette"))        { strlcpy(_cfg->palette, doc["palette"] | "", sizeof(_cfg->palette)); changed = true; }
-    if (doc.containsKey("tvIp"))           { strlcpy(_cfg->tvIp, doc["tvIp"] | "", sizeof(_cfg->tvIp)); changed = true; }
-    if (doc.containsKey("ambPollMs"))      { _cfg->ambPollMs = doc["ambPollMs"]; changed = true; }
-    if (doc.containsKey("ambMapping"))     { strlcpy(_cfg->ambMapping, doc["ambMapping"] | "", sizeof(_cfg->ambMapping)); changed = true; }
+    if (doc.containsKey("ambPollMs")) { _cfg->ambPollMs = doc["ambPollMs"]; anyChanged = true; }
 
-    if (changed) {
-        _engine->applyConfig(*_cfg);
-        _store->save(*_cfg);
-        broadcastState();
-    }
+    // Discrete params: save to flash + broadcast so other clients see the change
+    if (doc.containsKey("power"))      { _cfg->power = doc["power"];                                              anyChanged = discreteChanged = true; }
+    if (doc.containsKey("effect"))     { strlcpy(_cfg->effect,     doc["effect"]     | "", sizeof(_cfg->effect));  anyChanged = discreteChanged = true; }
+    if (doc.containsKey("palette"))    { strlcpy(_cfg->palette,    doc["palette"]    | "", sizeof(_cfg->palette)); anyChanged = discreteChanged = true; }
+    if (doc.containsKey("tvIp"))       { strlcpy(_cfg->tvIp,       doc["tvIp"]       | "", sizeof(_cfg->tvIp));    anyChanged = discreteChanged = true; }
+    if (doc.containsKey("ambMapping")) { strlcpy(_cfg->ambMapping, doc["ambMapping"] | "", sizeof(_cfg->ambMapping)); anyChanged = discreteChanged = true; }
+
+    if (anyChanged)      _engine->applyConfig(*_cfg);
+    if (discreteChanged) { _store->save(*_cfg); broadcastState(); }
 }
 
 void MilaWebServer::handleRestPresets() {
@@ -204,7 +218,7 @@ void MilaWebServer::handleAmbilightScan() {
         snprintf(ipBuf, sizeof(ipBuf), "%d.%d.%d.%d", base[0], base[1], base[2], i);
         broadcastScanProgress((uint8_t)((i * 100) / 254), ipBuf);
 
-        String url = String("http://") + ipBuf + "/ambilight/processed";
+        String url = String("http://") + ipBuf + ":1925/ambilight/processed";
         http.begin(client, url);
         http.setTimeout(200);
         if (http.GET() == 200) {
@@ -245,6 +259,7 @@ String MilaWebServer::buildStateJson() {
     doc["segALeds"]       = _cfg->segALeds;
     doc["segBLeds"]       = _cfg->segBLeds;
     doc["segAHalf"]       = _cfg->segAHalf;
+    doc["dataPin"]        = _cfg->dataPin;
     doc["tvIp"]           = _cfg->tvIp;
     doc["ambPollMs"]      = _cfg->ambPollMs;
     doc["ambMapping"]     = _cfg->ambMapping;

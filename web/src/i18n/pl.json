@@ -35,6 +35,7 @@
     "density": "Tryb seg A",
     "half": "Połowa (co drugi)",
     "full": "Pełna",
+    "dataPin": "Pin danych LED",
     "saveReboot": "Zapisz i uruchom ponownie",
     "rebooting": "Restartowanie…",
     "network": "Sieć",
@@ -49,6 +50,10 @@
     "mappingAvg": "Średnia",
     "scan": "Skanuj sieć",
     "scanning": "Skanowanie…",
+    "wifiChange": "Zmień sieć WiFi",
+    "wifiChangeConfirm": "To usunie dane WiFi i uruchomi ponownie w trybie konfiguracji. Połącz się z hotspotem MilaLED.",
+    "confirm": "Potwierdź",
+    "cancel": "Anuluj",
     "language": "Język"
   },
   "ambilight": { "status": "Status", "polling": "Pobieranie", "idle": "Bezczynny", "error": "Błąd" }

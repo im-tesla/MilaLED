@@ -35,6 +35,7 @@
     "density": "Seg A mode",
     "half": "Half (skip every other)",
     "full": "Full",
+    "dataPin": "LED data pin",
     "saveReboot": "Save & Reboot",
     "rebooting": "Rebooting…",
     "network": "Network",
@@ -49,6 +50,10 @@
     "mappingAvg": "Average",
     "scan": "Scan network",
     "scanning": "Scanning…",
+    "wifiChange": "Change WiFi network",
+    "wifiChangeConfirm": "This will erase WiFi credentials and restart in setup mode. You'll need to reconnect to the MilaLED hotspot.",
+    "confirm": "Confirm",
+    "cancel": "Cancel",
     "language": "Language"
   },
   "ambilight": { "status": "Status", "polling": "Polling", "idle": "Idle", "error": "Error" }

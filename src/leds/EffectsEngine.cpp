@@ -52,7 +52,16 @@ void EffectsEngine::begin(const Config& cfg) {
     _leds = new CRGB[_physCount];
     _vbuf = new CRGB[_virtCount];
 
-    FastLED.addLeds<WS2812B, 2, GRB>(_leds, _physCount);
+    // FastLED pin must be a compile-time template constant.
+    // Switch covers all GPIO pins exposed in the UI pin selector.
+    switch (cfg.dataPin) {
+        case  4: FastLED.addLeds<WS2815,  4, GRB>(_leds, _physCount); break;
+        case  5: FastLED.addLeds<WS2815,  5, GRB>(_leds, _physCount); break;
+        case 12: FastLED.addLeds<WS2815, 12, GRB>(_leds, _physCount); break;
+        case 13: FastLED.addLeds<WS2815, 13, GRB>(_leds, _physCount); break;
+        case 14: FastLED.addLeds<WS2815, 14, GRB>(_leds, _physCount); break;
+        default: FastLED.addLeds<WS2815,  2, GRB>(_leds, _physCount); break;
+    }
     FastLED.setBrightness(cfg.brightness);
 
     applyConfig(cfg);
@@ -93,7 +102,7 @@ void EffectsEngine::flushVirtualToPhysical() {
         _leds[_mapper->toPhysical(v)] = _vbuf[v];
     }
     // For half-density seg A: fill the skipped (odd) physical LEDs by copying even neighbor
-    if (_mapper->segACount() > _virtCount) {  // only if seg A is in half-density
+    if (_physCount > _virtCount) {  // true iff segAHalf is active
         for (uint16_t p = 1; p < _mapper->segACount(); p += 2) {
             _leds[p] = _leds[p - 1];
         }
