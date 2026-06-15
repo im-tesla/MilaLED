@@ -4,6 +4,7 @@
 #include <ESP8266HTTPClient.h>
 #include <WiFiClient.h>
 #include <WiFiManager.h>
+#include "../version.h"
 
 void MilaWebServer::begin(Config* cfg, ConfigStore* store, EffectsEngine* engine) {
     _cfg = cfg; _store = store; _engine = engine;
@@ -103,6 +104,7 @@ void MilaWebServer::begin(Config* cfg, ConfigStore* store, EffectsEngine* engine
         if (doc.containsKey("segALeds")) _cfg->segALeds = doc["segALeds"];
         if (doc.containsKey("segBLeds")) _cfg->segBLeds = doc["segBLeds"];
         if (doc.containsKey("segAHalf")) _cfg->segAHalf = doc["segAHalf"].as<bool>();
+        if (doc.containsKey("segBHalf")) _cfg->segBHalf = doc["segBHalf"].as<bool>();
         if (doc.containsKey("dataPin"))  _cfg->dataPin  = doc["dataPin"];
         _store->save(*_cfg);
         _http.send(200, "application/json", "{\"ok\":true}");
@@ -259,7 +261,9 @@ String MilaWebServer::buildStateJson() {
     doc["segALeds"]       = _cfg->segALeds;
     doc["segBLeds"]       = _cfg->segBLeds;
     doc["segAHalf"]       = _cfg->segAHalf;
+    doc["segBHalf"]       = _cfg->segBHalf;
     doc["dataPin"]        = _cfg->dataPin;
+    doc["version"]        = MILALED_VERSION;
     doc["tvIp"]           = _cfg->tvIp;
     doc["ambPollMs"]      = _cfg->ambPollMs;
     doc["ambMapping"]     = _cfg->ambMapping;

@@ -16,7 +16,9 @@ export interface LedState {
   segALeds: number
   segBLeds: number
   segAHalf: boolean
+  segBHalf: boolean
   dataPin: number
+  version: string
   tvIp: string
   ambPollMs: number
   ambMapping: string
@@ -38,7 +40,9 @@ const DEFAULT: LedState = {
   segALeds: 120,
   segBLeds: 58,
   segAHalf: true,
+  segBHalf: false,
   dataPin: 2,
+  version: '',
   tvIp: '',
   ambPollMs: 100,
   ambMapping: 'right',

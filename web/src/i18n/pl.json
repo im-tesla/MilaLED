@@ -33,6 +33,7 @@
     "segA": "LED seg A",
     "segB": "LED seg B",
     "density": "Tryb seg A",
+    "densityB": "Tryb seg B",
     "half": "Połowa (co drugi)",
     "full": "Pełna",
     "dataPin": "Pin danych LED",
@@ -54,7 +55,8 @@
     "wifiChangeConfirm": "To usunie dane WiFi i uruchomi ponownie w trybie konfiguracji. Połącz się z hotspotem MilaLED.",
     "confirm": "Potwierdź",
     "cancel": "Anuluj",
-    "language": "Język"
+    "language": "Język",
+    "version": "Oprogramowanie"
   },
   "ambilight": { "status": "Status", "polling": "Pobieranie", "idle": "Bezczynny", "error": "Błąd" }
 }

@@ -46,7 +46,7 @@ static const uint8_t EFFECT_COUNT = sizeof(_effectList) / sizeof(_effectList[0])
 // ---------------------------------------------------------------------------
 
 void EffectsEngine::begin(const Config& cfg) {
-    _mapper = new PixelMapper(cfg.segALeds, cfg.segAHalf, cfg.segBLeds);
+    _mapper = new PixelMapper(cfg.segALeds, cfg.segAHalf, cfg.segBLeds, cfg.segBHalf);
     _physCount = _mapper->physicalCount();
     _virtCount = _mapper->virtualCount();
     _leds = new CRGB[_physCount];
@@ -101,9 +101,15 @@ void EffectsEngine::flushVirtualToPhysical() {
     for (uint16_t v = 0; v < _virtCount; v++) {
         _leds[_mapper->toPhysical(v)] = _vbuf[v];
     }
-    // For half-density seg A: fill the skipped (odd) physical LEDs by copying even neighbor
-    if (_physCount > _virtCount) {  // true iff segAHalf is active
+    // Fill skipped physical LEDs by copying even→odd neighbour for half-density segments
+    if (_mapper->segAHalf()) {
         for (uint16_t p = 1; p < _mapper->segACount(); p += 2) {
+            _leds[p] = _leds[p - 1];
+        }
+    }
+    if (_mapper->segBHalf()) {
+        uint16_t segBStart = _mapper->segACount();
+        for (uint16_t p = segBStart + 1; p < _physCount; p += 2) {
             _leds[p] = _leds[p - 1];
         }
     }

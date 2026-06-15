@@ -43,25 +43,30 @@ export function SettingsTab({ state, update, scanProgress, foundTvs }: Props) {
   const [segALeds, setSegALeds] = useState(state.segALeds)
   const [segBLeds, setSegBLeds] = useState(state.segBLeds)
   const [segAHalf, setSegAHalf] = useState(state.segAHalf)
+  const [segBHalf, setSegBHalf] = useState(state.segBHalf)
   const [dataPin,  setDataPin]  = useState(state.dataPin)
   const [rebooting, setRebooting] = useState(false)
   const [confirmWifi, setConfirmWifi] = useState(false)
   const [wifiResetting, setWifiResetting] = useState(false)
+
+  // Compute projected virtual LEDs locally so it updates as the user edits
+  const localVirt = Math.floor(segALeds / (segAHalf ? 2 : 1)) + Math.floor(segBLeds / (segBHalf ? 2 : 1))
 
   // Sync local strip state when WebSocket pushes fresh state (e.g. after reconnect)
   useEffect(() => {
     setSegALeds(state.segALeds)
     setSegBLeds(state.segBLeds)
     setSegAHalf(state.segAHalf)
+    setSegBHalf(state.segBHalf)
     setDataPin(state.dataPin)
-  }, [state.segALeds, state.segBLeds, state.segAHalf, state.dataPin])
+  }, [state.segALeds, state.segBLeds, state.segAHalf, state.segBHalf, state.dataPin])
 
   const saveStrip = async () => {
     setRebooting(true)
     await fetch('/api/strip', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ segALeds, segBLeds, segAHalf, dataPin }),
+      body: JSON.stringify({ segALeds, segBLeds, segAHalf, segBHalf, dataPin }),
     }).catch(() => {})
     // ESP restarts — WebSocket will reconnect automatically.
     // Reset rebooting state after a generous timeout in case the restart takes longer.
@@ -89,7 +94,7 @@ export function SettingsTab({ state, update, scanProgress, foundTvs }: Props) {
         <div className="rounded-xl bg-zinc-900 border border-zinc-800 p-3 space-y-3">
           <div className="flex items-center justify-between text-sm">
             <span className="text-zinc-400">Virtual LEDs</span>
-            <span className="text-zinc-100 tabular-nums">{state.virtualLeds}</span>
+            <span className="text-zinc-100 tabular-nums">{localVirt}</span>
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div className="space-y-1">
@@ -122,6 +127,24 @@ export function SettingsTab({ state, update, scanProgress, foundTvs }: Props) {
                   onClick={() => setSegAHalf(half)}
                   className={`flex-1 py-2 rounded-lg border text-xs font-medium transition-colors ${
                     segAHalf === half
+                      ? 'border-amber-400/60 text-amber-400 bg-amber-400/5'
+                      : 'border-zinc-700 text-zinc-400 hover:border-zinc-600'
+                  }`}
+                >
+                  {half ? t('settings.half') : t('settings.full')}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="space-y-1">
+            <span className="text-xs text-zinc-500">{t('settings.densityB')}</span>
+            <div className="flex gap-2">
+              {[true, false].map(half => (
+                <button
+                  key={String(half)}
+                  onClick={() => setSegBHalf(half)}
+                  className={`flex-1 py-2 rounded-lg border text-xs font-medium transition-colors ${
+                    segBHalf === half
                       ? 'border-amber-400/60 text-amber-400 bg-amber-400/5'
                       : 'border-zinc-700 text-zinc-400 hover:border-zinc-600'
                   }`}
@@ -311,6 +334,17 @@ export function SettingsTab({ state, update, scanProgress, foundTvs }: Props) {
               {lang.toUpperCase()}
             </button>
           ))}
+        </div>
+      </section>
+
+      {/* Firmware version */}
+      <section className="space-y-2">
+        <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">
+          {t('settings.version')}
+        </h3>
+        <div className="rounded-xl bg-zinc-900 border border-zinc-800 p-3 flex items-center justify-between text-sm">
+          <span className="text-zinc-400">{t('settings.version')}</span>
+          <span className="text-zinc-100 tabular-nums">{state.version || '—'}</span>
         </div>
       </section>
 

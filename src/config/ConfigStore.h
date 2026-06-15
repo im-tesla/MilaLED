@@ -14,6 +14,7 @@ struct Config {
     uint16_t segALeds     = 120;
     bool     segAHalf     = true;
     uint16_t segBLeds     = 58;
+    bool     segBHalf     = false;
     uint8_t  dataPin      = 2;
 
     char     tvIp[16]     = "";

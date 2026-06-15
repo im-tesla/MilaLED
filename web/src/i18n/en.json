@@ -33,6 +33,7 @@
     "segA": "Seg A LEDs",
     "segB": "Seg B LEDs",
     "density": "Seg A mode",
+    "densityB": "Seg B mode",
     "half": "Half (skip every other)",
     "full": "Full",
     "dataPin": "LED data pin",
@@ -54,7 +55,8 @@
     "wifiChangeConfirm": "This will erase WiFi credentials and restart in setup mode. You'll need to reconnect to the MilaLED hotspot.",
     "confirm": "Confirm",
     "cancel": "Cancel",
-    "language": "Language"
+    "language": "Language",
+    "version": "Firmware"
   },
   "ambilight": { "status": "Status", "polling": "Polling", "idle": "Idle", "error": "Error" }
 }
