@@ -23,7 +23,7 @@
       "breathing": "Oddychanie",
       "strobe": "Stroboskop",
       "perlinflow": "Przepływ Perlina",
-      "ambilight": "Ambilight"
+      "ambilight": "Philips Ambilight"
     }
   },
   "color": { "primary": "Główny", "secondary": "Dodatkowy", "palette": "Paleta" },
@@ -37,11 +37,13 @@
     "half": "Połowa (co drugi)",
     "full": "Pełna",
     "dataPin": "Pin danych LED",
+    "colorOrder": "Kolejność kolorów",
+    "chipset": "Układ LED",
     "saveReboot": "Zapisz i uruchom ponownie",
     "rebooting": "Restartowanie…",
     "network": "Sieć",
     "wifi": "WiFi",
-    "ambilight": "Ambilight",
+    "ambilight": "Philips Ambilight",
     "tvIp": "Adres IP telewizora",
     "pollInterval": "Interwał (ms)",
     "mapping": "Mapowanie",
@@ -51,6 +53,7 @@
     "mappingAvg": "Średnia",
     "scan": "Skanuj sieć",
     "scanning": "Skanowanie…",
+    "stopScan": "Zatrzymaj",
     "wifiChange": "Zmień sieć WiFi",
     "wifiChangeConfirm": "To usunie dane WiFi i uruchomi ponownie w trybie konfiguracji. Połącz się z hotspotem MilaLED.",
     "confirm": "Potwierdź",

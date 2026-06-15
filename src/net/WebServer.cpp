@@ -85,6 +85,12 @@ void MilaWebServer::begin(Config* cfg, ConfigStore* store, EffectsEngine* engine
     // REST: ambilight scan (triggers async scan, progress comes back via WebSocket)
     _http.on("/api/ambilight/scan", HTTP_POST, [this]() { handleAmbilightScan(); });
 
+    // REST: cancel running ambilight scan
+    _http.on("/api/ambilight/scan/cancel", HTTP_POST, [this]() {
+        _scanCancel = true;
+        _http.send(200, "application/json", "{\"ok\":true}");
+    });
+
     // REST: erase WiFi credentials and restart into AP/captive-portal mode
     _http.on("/api/wifi/reset", HTTP_POST, [this]() {
         _http.send(200, "application/json", "{\"ok\":true}");
@@ -101,11 +107,13 @@ void MilaWebServer::begin(Config* cfg, ConfigStore* store, EffectsEngine* engine
             _http.send(400, "application/json", "{\"error\":\"bad json\"}");
             return;
         }
-        if (doc.containsKey("segALeds")) _cfg->segALeds = doc["segALeds"];
-        if (doc.containsKey("segBLeds")) _cfg->segBLeds = doc["segBLeds"];
-        if (doc.containsKey("segAHalf")) _cfg->segAHalf = doc["segAHalf"].as<bool>();
-        if (doc.containsKey("segBHalf")) _cfg->segBHalf = doc["segBHalf"].as<bool>();
-        if (doc.containsKey("dataPin"))  _cfg->dataPin  = doc["dataPin"];
+        if (doc.containsKey("segALeds"))  _cfg->segALeds  = doc["segALeds"];
+        if (doc.containsKey("segBLeds"))  _cfg->segBLeds  = doc["segBLeds"];
+        if (doc.containsKey("segAHalf"))  _cfg->segAHalf  = doc["segAHalf"].as<bool>();
+        if (doc.containsKey("segBHalf"))  _cfg->segBHalf  = doc["segBHalf"].as<bool>();
+        if (doc.containsKey("dataPin"))   _cfg->dataPin   = doc["dataPin"];
+        if (doc.containsKey("colorOrder"))_cfg->colorOrder= doc["colorOrder"];
+        if (doc.containsKey("chipset"))   _cfg->chipset   = doc["chipset"];
         _store->save(*_cfg);
         _http.send(200, "application/json", "{\"ok\":true}");
         _pendingRestart = true;
@@ -211,10 +219,12 @@ void MilaWebServer::handleRestPresets() {
 }
 
 void MilaWebServer::handleAmbilightScan() {
+    _scanCancel = false;
     IPAddress base = WiFi.localIP();
     WiFiClient client;
     HTTPClient http;
     for (uint16_t i = 1; i <= 254; i++) {
+        if (_scanCancel) break;
         yield(); // prevent watchdog reset
         char ipBuf[16];
         snprintf(ipBuf, sizeof(ipBuf), "%d.%d.%d.%d", base[0], base[1], base[2], i);
@@ -222,7 +232,7 @@ void MilaWebServer::handleAmbilightScan() {
 
         String url = String("http://") + ipBuf + ":1925/ambilight/processed";
         http.begin(client, url);
-        http.setTimeout(200);
+        http.setTimeout(40);   // LAN: responsive hosts reply <5ms, dead ones get 40ms
         if (http.GET() == 200) {
             // verify it's a Philips TV (has "layer1" key)
             StaticJsonDocument<64> probe;
@@ -237,7 +247,14 @@ void MilaWebServer::handleAmbilightScan() {
         }
         http.end();
     }
-    broadcastScanProgress(100, "done");
+    // signal scan done
+    StaticJsonDocument<64> done;
+    done["type"] = "scanProgress";
+    done["pct"]  = 100;
+    done["msg"]  = _scanCancel ? "cancelled" : "done";
+    String out;
+    serializeJson(done, out);
+    _ws.broadcastTXT(out.c_str());
     _http.send(200, "application/json", "{\"ok\":true}");
 }
 
@@ -263,8 +280,12 @@ String MilaWebServer::buildStateJson() {
     doc["segAHalf"]       = _cfg->segAHalf;
     doc["segBHalf"]       = _cfg->segBHalf;
     doc["dataPin"]        = _cfg->dataPin;
+    doc["colorOrder"]     = _cfg->colorOrder;
+    doc["chipset"]        = _cfg->chipset;
     doc["version"]        = MILALED_VERSION;
     doc["tvIp"]           = _cfg->tvIp;
+    const char* statusMap[] = {"idle", "polling", "error"};
+    doc["ambStatus"]      = statusMap[_engine->ambStatus() % 3];
     doc["ambPollMs"]      = _cfg->ambPollMs;
     doc["ambMapping"]     = _cfg->ambMapping;
     String out;

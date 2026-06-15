@@ -52,16 +52,39 @@ void EffectsEngine::begin(const Config& cfg) {
     _leds = new CRGB[_physCount];
     _vbuf = new CRGB[_virtCount];
 
-    // FastLED pin must be a compile-time template constant.
-    // Switch covers all GPIO pins exposed in the UI pin selector.
-    switch (cfg.dataPin) {
-        case  4: FastLED.addLeds<WS2815,  4, GRB>(_leds, _physCount); break;
-        case  5: FastLED.addLeds<WS2815,  5, GRB>(_leds, _physCount); break;
-        case 12: FastLED.addLeds<WS2815, 12, GRB>(_leds, _physCount); break;
-        case 13: FastLED.addLeds<WS2815, 13, GRB>(_leds, _physCount); break;
-        case 14: FastLED.addLeds<WS2815, 14, GRB>(_leds, _physCount); break;
-        default: FastLED.addLeds<WS2815,  2, GRB>(_leds, _physCount); break;
+    // FastLED pin, chipset, and color order are compile-time template constants.
+    // Macros generate the cross-product of (chipset × color order × pin).
+#define LED_PIN_CASES(CHIP, ORDER) \
+    switch (cfg.dataPin) { \
+        case  4: FastLED.addLeds<CHIP,  4, ORDER>(_leds, _physCount); break; \
+        case  5: FastLED.addLeds<CHIP,  5, ORDER>(_leds, _physCount); break; \
+        case 12: FastLED.addLeds<CHIP, 12, ORDER>(_leds, _physCount); break; \
+        case 13: FastLED.addLeds<CHIP, 13, ORDER>(_leds, _physCount); break; \
+        case 14: FastLED.addLeds<CHIP, 14, ORDER>(_leds, _physCount); break; \
+        default: FastLED.addLeds<CHIP,  2, ORDER>(_leds, _physCount); break; \
     }
+
+#define ORDER_CASES(CHIP) \
+    switch (cfg.colorOrder) { \
+        case 0: LED_PIN_CASES(CHIP, RGB) break; \
+        case 1: LED_PIN_CASES(CHIP, RBG) break; \
+        case 2: LED_PIN_CASES(CHIP, GRB) break; \
+        case 3: LED_PIN_CASES(CHIP, GBR) break; \
+        case 4: LED_PIN_CASES(CHIP, BRG) break; \
+        case 5: LED_PIN_CASES(CHIP, BGR) break; \
+        default:LED_PIN_CASES(CHIP, GRB) break; \
+    }
+
+    switch (cfg.chipset) {
+        case 0: ORDER_CASES(WS2811)  break;
+        case 1: ORDER_CASES(WS2812B) break;
+        case 2: ORDER_CASES(WS2815)  break;
+        case 3: ORDER_CASES(WS2813)  break;
+        case 4: ORDER_CASES(SK6812)  break;
+        default:ORDER_CASES(WS2815)  break;
+    }
+#undef LED_PIN_CASES
+#undef ORDER_CASES
     FastLED.setBrightness(cfg.brightness);
 
     applyConfig(cfg);
@@ -120,4 +143,8 @@ EffectBase* EffectsEngine::findEffect(const char* id) const {
         if (strcmp(_effectList[i]->id(), id) == 0) return _effectList[i];
     }
     return nullptr;
+}
+
+uint8_t EffectsEngine::ambStatus() const {
+    return _eAmbilight.getStatus();
 }

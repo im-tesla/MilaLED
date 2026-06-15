@@ -29,6 +29,7 @@ public:
     void tick();
     void applyConfig(const Config& cfg);
     uint16_t virtualCount() const { return _mapper ? _mapper->virtualCount() : 0; }
+    uint8_t  ambStatus() const;
 
 private:
     CRGB*        _leds      = nullptr;

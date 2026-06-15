@@ -23,7 +23,7 @@
       "breathing": "Breathing",
       "strobe": "Strobe",
       "perlinflow": "Perlin Flow",
-      "ambilight": "Ambilight"
+      "ambilight": "Philips Ambilight"
     }
   },
   "color": { "primary": "Primary", "secondary": "Secondary", "palette": "Palette" },
@@ -37,11 +37,13 @@
     "half": "Half (skip every other)",
     "full": "Full",
     "dataPin": "LED data pin",
+    "colorOrder": "Color order",
+    "chipset": "LED chipset",
     "saveReboot": "Save & Reboot",
     "rebooting": "Rebooting…",
     "network": "Network",
     "wifi": "WiFi",
-    "ambilight": "Ambilight",
+    "ambilight": "Philips Ambilight",
     "tvIp": "TV IP address",
     "pollInterval": "Poll interval (ms)",
     "mapping": "Mapping",
@@ -51,6 +53,7 @@
     "mappingAvg": "Average",
     "scan": "Scan network",
     "scanning": "Scanning…",
+    "stopScan": "Stop",
     "wifiChange": "Change WiFi network",
     "wifiChangeConfirm": "This will erase WiFi credentials and restart in setup mode. You'll need to reconnect to the MilaLED hotspot.",
     "confirm": "Confirm",

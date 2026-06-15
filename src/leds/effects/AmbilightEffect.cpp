@@ -18,42 +18,48 @@ public:
         _mapping[sizeof(_mapping) - 1] = '\0';
     }
 
-    void reset() override { _lastPoll = 0; }
+    void reset() override { _lastPoll = 0; _ambStatus = AMB_IDLE; }
 
     void tick(CRGB* leds, uint16_t count, const EffectParams& p) override {
         uint32_t now = millis();
-        if (now - _lastPoll >= _pollMs) {
+        if (_tvIp[0] != '\0' && now - _lastPoll >= _pollMs) {
             _lastPoll = now;
             fetchAndParse();
         }
         applyZones(leds, count);
     }
 
+    enum { AMB_IDLE = 0, AMB_POLLING = 1, AMB_ERROR = 2 };
+    uint8_t getStatus() const { return _ambStatus; }
+
 private:
     char     _tvIp[16]    = "";
     uint16_t _pollMs      = 100;
     char     _mapping[16] = "right";
     uint32_t _lastPoll    = 0;
+    uint8_t  _ambStatus   = AMB_IDLE;
 
     static const uint8_t MAX_ZONES = 10;
     AmbZone  _zones[MAX_ZONES] = {};
     uint8_t  _zoneCount = 0;
 
     void fetchAndParse() {
-        if (_tvIp[0] == '\0') return;
+        if (_tvIp[0] == '\0') { _ambStatus = AMB_IDLE; return; }
         WiFiClient client;
         HTTPClient http;
-        String url = String("http://") + _tvIp + "/ambilight/processed";
+        String url = String("http://") + _tvIp + ":1925/ambilight/processed";
         http.begin(client, url);
         http.setTimeout(500);
         int code = http.GET();
-        if (code != 200) { http.end(); return; }
+        if (code != 200) { http.end(); _ambStatus = AMB_ERROR; return; }
 
         // Use stream parsing to save RAM
         StaticJsonDocument<2048> doc;
         DeserializationError err = deserializeJson(doc, http.getStream());
         http.end();
-        if (err) return;
+        if (err || !doc.containsKey("layer1")) { _ambStatus = AMB_ERROR; return; }
+
+        _ambStatus = AMB_POLLING;
 
         if (strcmp(_mapping, "average") == 0) {
             uint32_t r = 0, g = 0, b = 0;

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { WifiHigh, MagnifyingGlass, ArrowCounterClockwise } from '@phosphor-icons/react'
+import { WifiHigh, MagnifyingGlass, ArrowCounterClockwise, Stop } from '@phosphor-icons/react'
 import { AmbilightStatus } from '@/components/shared/AmbilightStatus'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -29,6 +29,10 @@ const MAPPING_OPTIONS: { value: string; key: string }[] = [
   { value: 'average', key: 'settings.mappingAvg' },
 ]
 
+const COLOR_ORDERS = ['RGB', 'RBG', 'GRB', 'GBR', 'BRG', 'BGR']
+
+const CHIPSETS = ['WS2811', 'WS2812B', 'WS2815', 'WS2813', 'SK6812']
+
 interface Props {
   state: LedState
   update: (p: Partial<LedState>) => void
@@ -45,6 +49,8 @@ export function SettingsTab({ state, update, scanProgress, foundTvs }: Props) {
   const [segAHalf, setSegAHalf] = useState(state.segAHalf)
   const [segBHalf, setSegBHalf] = useState(state.segBHalf)
   const [dataPin,  setDataPin]  = useState(state.dataPin)
+  const [colorOrder, setColorOrder] = useState(state.colorOrder)
+  const [chipset,   setChipset]   = useState(state.chipset)
   const [rebooting, setRebooting] = useState(false)
   const [confirmWifi, setConfirmWifi] = useState(false)
   const [wifiResetting, setWifiResetting] = useState(false)
@@ -59,14 +65,16 @@ export function SettingsTab({ state, update, scanProgress, foundTvs }: Props) {
     setSegAHalf(state.segAHalf)
     setSegBHalf(state.segBHalf)
     setDataPin(state.dataPin)
-  }, [state.segALeds, state.segBLeds, state.segAHalf, state.segBHalf, state.dataPin])
+    setColorOrder(state.colorOrder)
+    setChipset(state.chipset)
+  }, [state.segALeds, state.segBLeds, state.segAHalf, state.segBHalf, state.dataPin, state.colorOrder, state.chipset])
 
   const saveStrip = async () => {
     setRebooting(true)
     await fetch('/api/strip', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ segALeds, segBLeds, segAHalf, segBHalf, dataPin }),
+      body: JSON.stringify({ segALeds, segBLeds, segAHalf, segBHalf, dataPin, colorOrder, chipset }),
     }).catch(() => {})
     // ESP restarts — WebSocket will reconnect automatically.
     // Reset rebooting state after a generous timeout in case the restart takes longer.
@@ -75,6 +83,10 @@ export function SettingsTab({ state, update, scanProgress, foundTvs }: Props) {
 
   const startScan = () => {
     fetch('/api/ambilight/scan', { method: 'POST' }).catch(() => {})
+  }
+
+  const stopScan = () => {
+    fetch('/api/ambilight/scan/cancel', { method: 'POST' }).catch(() => {})
   }
 
   const resetWifi = async () => {
@@ -172,6 +184,36 @@ export function SettingsTab({ state, update, scanProgress, foundTvs }: Props) {
               ))}
             </div>
           </div>
+          <div className="space-y-1">
+            <span className="text-xs text-zinc-500">{t('settings.colorOrder')}</span>
+            <Select value={String(colorOrder)} onValueChange={v => setColorOrder(Number(v))}>
+              <SelectTrigger className="bg-zinc-800 border-zinc-700 text-sm h-9 w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="bg-zinc-900 border-zinc-800">
+                {COLOR_ORDERS.map((label, i) => (
+                  <SelectItem key={label} value={String(i)} className="text-zinc-300 focus:bg-zinc-800">
+                    {label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <span className="text-xs text-zinc-500">{t('settings.chipset')}</span>
+            <Select value={String(chipset)} onValueChange={v => setChipset(Number(v))}>
+              <SelectTrigger className="bg-zinc-800 border-zinc-700 text-sm h-9 w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="bg-zinc-900 border-zinc-800">
+                {CHIPSETS.map((label, i) => (
+                  <SelectItem key={label} value={String(i)} className="text-zinc-300 focus:bg-zinc-800">
+                    {label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
           <Button
             onClick={saveStrip}
             disabled={rebooting}
@@ -249,16 +291,27 @@ export function SettingsTab({ state, update, scanProgress, foundTvs }: Props) {
             placeholder={t('settings.tvIp')}
             className="bg-zinc-900 border-zinc-700 text-sm h-9 flex-1"
           />
-          <Button
-            size="sm"
-            variant="outline"
-            className="border-zinc-700 text-zinc-300 hover:text-amber-400 hover:border-amber-400/40 shrink-0"
-            onClick={startScan}
-            disabled={!!scanProgress}
-          >
-            <MagnifyingGlass size={14} className="mr-1" />
-            {scanProgress ? t('settings.scanning') : t('settings.scan')}
-          </Button>
+          {scanProgress ? (
+            <Button
+              size="sm"
+              variant="outline"
+              className="border-red-500/40 text-red-400 hover:border-red-400 hover:text-red-300 shrink-0"
+              onClick={stopScan}
+            >
+              <Stop size={14} className="mr-1" />
+              {t('settings.stopScan')}
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              variant="outline"
+              className="border-zinc-700 text-zinc-300 hover:text-amber-400 hover:border-amber-400/40 shrink-0"
+              onClick={startScan}
+            >
+              <MagnifyingGlass size={14} className="mr-1" />
+              {t('settings.scan')}
+            </Button>
+          )}
         </div>
 
         {scanProgress && (

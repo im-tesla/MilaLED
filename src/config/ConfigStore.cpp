@@ -27,7 +27,9 @@ bool ConfigStore::load(Config& cfg) {
     cfg.segAHalf = doc.containsKey("segAHalf") ? doc["segAHalf"].as<bool>() : cfg.segAHalf;
     cfg.segBLeds = doc["segBLeds"] | cfg.segBLeds;
     cfg.segBHalf = doc.containsKey("segBHalf") ? doc["segBHalf"].as<bool>() : cfg.segBHalf;
-    cfg.dataPin  = doc["dataPin"]  | cfg.dataPin;
+    cfg.dataPin   = doc["dataPin"]   | cfg.dataPin;
+    cfg.colorOrder= doc["colorOrder"]| cfg.colorOrder;
+    cfg.chipset   = doc["chipset"]   | cfg.chipset;
     strlcpy(cfg.tvIp, doc["tvIp"] | cfg.tvIp, sizeof(cfg.tvIp));
     cfg.ambPollMs = doc["ambPollMs"] | cfg.ambPollMs;
     strlcpy(cfg.ambMapping, doc["ambMapping"] | cfg.ambMapping, sizeof(cfg.ambMapping));
@@ -49,6 +51,8 @@ bool ConfigStore::save(const Config& cfg) {
     doc["segBLeds"]       = cfg.segBLeds;
     doc["segBHalf"]       = cfg.segBHalf;
     doc["dataPin"]        = cfg.dataPin;
+    doc["colorOrder"]     = cfg.colorOrder;
+    doc["chipset"]        = cfg.chipset;
     doc["tvIp"]           = cfg.tvIp;
     doc["ambPollMs"]      = cfg.ambPollMs;
     doc["ambMapping"]     = cfg.ambMapping;
