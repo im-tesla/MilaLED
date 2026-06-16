@@ -42,6 +42,14 @@ public:
     uint16_t virtualCount() const { return _mapper ? _mapper->virtualCount() : 0; }
     uint8_t  ambStatus() const;
 
+    // Zero-latency Hyperion flush — copies UDP buffer to physical LEDs
+    // and calls FastLED.show() immediately. Called every loop iteration.
+    void flushHyperion();
+
+    // Direct physical LED access for low-latency UDP streaming
+    CRGB*    physBuf()   const { return _leds; }
+    uint16_t physCount() const { return _physCount; }
+
 private:
     CRGB*        _leds      = nullptr;
     PixelMapper* _mapper    = nullptr;

@@ -69,10 +69,11 @@ void setup() {
 }
 
 void loop() {
-    hyperionLoop();          // always-on UDP listener (port 21324)
+    hyperionLoop();          // UDP receive (ports 19446+4048)
+    engine.flushHyperion();  // write UDP data → LEDs at zero latency
     network.loop();          // MDNS.update()
     webServer.loop();        // HTTP + WebSocket handlers
-    engine.tick();           // LED frame update (20ms throttled)
+    engine.tick();           // LED frame update (20ms throttled, skips hyperion)
     ArduinoOTA.handle();     // OTA update check
 
     // Persist continuous params (brightness/speed/etc.) every 30s without broadcasting.

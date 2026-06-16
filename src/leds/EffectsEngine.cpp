@@ -4,36 +4,45 @@
 #include <WiFiUdp.h>
 static WiFiUDP _hyRaw;    // port 19446 — RAW RGB
 static WiFiUDP _hyDdp;    // port 4048  — DDP (default Hyperion WLED protocol)
-static bool    _hyReady = false;
+static bool    _hyReady  = false;
 uint8_t        _hBuf[1536];
-uint16_t       _hLen  = 0;
-uint32_t       _hLast = 0;
+uint16_t       _hLen    = 0;
+uint32_t       _hLast   = 0;
 
 void hyperionLoop() {
     if (!_hyReady) {
-        _hyRaw.begin(19446);  // WLED udpRgbPort — RAW RGB stream
-        _hyDdp.begin(4048);   // DDP default port
+        _hyRaw.begin(19446);
+        _hyDdp.begin(4048);
         _hyReady = true;
     }
 
     // Try RAW port first
     uint16_t sz = _hyRaw.parsePacket();
-    if (sz >= 3 && sz <= sizeof(_hBuf)) {
-        _hLen = sz;
-        _hyRaw.read(_hBuf, sz);
-        _hLast = millis();
-        return;
+    WiFiUDP* src = &_hyRaw;
+    bool isDdp = false;
+
+    if (sz < 3 || sz > sizeof(_hBuf)) {
+        sz = _hyDdp.parsePacket();
+        src = &_hyDdp;
+        isDdp = true;
     }
 
-    // Try DDP port — strip 10-byte DDP header
-    sz = _hyDdp.parsePacket();
-    if (sz >= 13 && sz - 10 <= sizeof(_hBuf)) {  // DDP header = 10 bytes
-        uint8_t ddpHeader[10];
-        _hyDdp.read(ddpHeader, 10);  // discard header
-        _hLen = sz - 10;
-        _hyDdp.read(_hBuf, _hLen);
-        _hLast = millis();
+    if (sz < 3 || sz > sizeof(_hBuf)) return;
+
+    uint8_t* buf = _hBuf;
+    uint16_t len;
+
+    if (isDdp && sz >= 13) {
+        src->read(_hBuf, 10);       // discard 10-byte DDP header
+        len = sz - 10;
+        src->read(_hBuf, len);
+    } else {
+        len = sz;
+        src->read(_hBuf, sz);
     }
+
+    _hLen = len;
+    _hLast = millis();
 }
 
 #define EFFECTS_ENGINE
@@ -278,8 +287,47 @@ void EffectsEngine::tick() {
 
     if (!_active) return;
 
+    // If hyperion effect is active, skip normal tick — flushHyperion()
+    // already wrote to _leds and called FastLED.show() this iteration
+    if (_active && strcmp(_active->id(), "hyperion") == 0) return;
+
     _active->tick(_vbuf, _virtCount, _params);
     flushVirtualToPhysical();
+    FastLED.show();
+}
+
+void EffectsEngine::flushHyperion() {
+    uint32_t now = millis();
+
+    // Check if hyperion effect is the active one
+    if (!_active || strcmp(_active->id(), "hyperion") != 0) return;
+    if (!_leds || _physCount == 0) return;
+
+    if (_hLen < 3) {
+        // Fade to black after timeout
+        if (_hLast > 0 && now - _hLast > 2500) {
+            fill_solid(_leds, _physCount, CRGB::Black);
+            FastLED.show();
+            _hLast = 0;
+        }
+        return;
+    }
+
+    const uint8_t* p = _hBuf;
+    uint16_t len = _hLen;
+
+    // Determine offset: DDP has no prefix bytes (stripped in hyperionLoop)
+    // RAW from port 19446 has no prefix. Just copy.
+    if (len % 3 != 0) return;  // malformed
+
+    uint16_t n = len / 3;
+    uint16_t max = _physCount < n ? _physCount : n;
+    for (uint16_t i = 0; i < max; i++) {
+        uint16_t off = i * 3;
+        _leds[i].r = p[off];
+        _leds[i].g = p[off+1];
+        _leds[i].b = p[off+2];
+    }
     FastLED.show();
 }
 
