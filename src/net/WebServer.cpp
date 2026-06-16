@@ -25,16 +25,63 @@ void MilaWebServer::begin(Config* cfg, ConfigStore* store, EffectsEngine* engine
     // WLED-compatible JSON info endpoint — Hyperion/HyperHDR validates
     // the device by requesting /json/info before streaming UDP data.
     _http.on("/json/info", HTTP_GET, [this]() {
-        StaticJsonDocument<256> doc;
-        doc["ver"]       = MILALED_VERSION;
-        doc["vid"]       = 2401010;          // WLED build ID
+        StaticJsonDocument<512> doc;
+        doc["ver"]       = "0.14.0";         // WLED version alias
+        doc["vid"]       = 2401010;
         doc["name"]      = "MilaLED";
+        doc["arch"]      = "esp32";
+        doc["core"]      = "MilaLED";
+        doc["lwip"]      = 0;
+        doc["uptime"]    = millis() / 1000;
+
         JsonObject leds  = doc["leds"].to<JsonObject>();
         leds["count"]    = _engine->virtualCount();
         leds["rgbw"]     = false;
+        leds["wv"]       = false;
         leds["pwr"]      = 0;
         leds["maxpwr"]   = 65000;
         leds["maxseg"]   = 1;
+        leds["matrix"]   = false;
+
+        JsonObject wifi  = doc["wifi"].to<JsonObject>();
+        wifi["bssid"]    = WiFi.BSSIDstr();
+        wifi["rssi"]     = WiFi.RSSI();
+        wifi["signal"]   = WiFi.RSSI();
+        wifi["channel"]  = WiFi.channel();
+
+        JsonObject fs    = doc["fs"].to<JsonObject>();
+        fs["u"]          = 0;
+        fs["t"]          = 1024;
+        fs["pmt"]        = 1024;
+
+        doc["ndc"]       = 1;                // LED count configurable
+        doc["mac"]       = WiFi.macAddress();
+        doc["ip"]        = WiFi.localIP().toString();
+
+        String out;
+        serializeJson(doc, out);
+        _http.send(200, "application/json", out);
+    });
+
+    // WLED-compatible state endpoint
+    _http.on("/json/state", HTTP_GET, [this]() {
+        StaticJsonDocument<256> doc;
+        doc["on"]        = true;
+        doc["bri"]       = 128;
+        doc["transition"] = 7;
+        doc["ps"]        = -1;
+        doc["pl"]        = -1;
+        JsonObject nl    = doc["nl"].to<JsonObject>();
+        nl["on"]         = false;
+        nl["bri"]        = 0;
+        JsonArray segs   = doc["seg"].to<JsonArray>();
+        JsonObject seg   = segs.createNestedObject();
+        seg["id"]        = 0;
+        seg["start"]     = 0;
+        seg["stop"]      = _engine->virtualCount();
+        seg["len"]       = _engine->virtualCount();
+        seg["on"]        = true;
+        seg["bri"]       = 128;
         String out;
         serializeJson(doc, out);
         _http.send(200, "application/json", out);

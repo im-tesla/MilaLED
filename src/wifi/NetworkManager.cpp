@@ -43,6 +43,8 @@ void NetworkManager::begin(const char* apName) {
 
     if (connected) {
         MDNS.begin("milaled");
+        MDNS.addService("wled", "_tcp", 80);
+        MDNS.addServiceTxt("wled", "_tcp", "mac", WiFi.macAddress().c_str());
     }
 }
 
