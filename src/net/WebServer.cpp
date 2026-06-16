@@ -22,11 +22,11 @@ void MilaWebServer::begin(Config* cfg, ConfigStore* store, EffectsEngine* engine
         f.close();
     });
 
-    // WLED-compatible JSON info endpoint — Hyperion validates this
+    // WLED-compatible JSON info endpoint — exact match to WLED 0.14+ schema
     _http.on("/json/info", HTTP_GET, [this]() {
         uint16_t n = _engine->virtualCount();
         StaticJsonDocument<768> doc;
-        doc["ver"]       = "0.14.1";      // WLED version alias
+        doc["ver"]       = "0.14.1";
         doc["vid"]       = 2405180;
         doc["name"]      = "MilaLED";
         doc["arch"]      = "esp32";
@@ -43,9 +43,13 @@ void MilaWebServer::begin(Config* cfg, ConfigStore* store, EffectsEngine* engine
         doc["udpport"]   = 21324;
         doc["live"]      = false;
         doc["liveseg"]   = -1;
+        doc["lm"]        = "";
+        doc["lip"]       = "";
+        doc["ws"]        = 0;
         doc["fxcount"]   = 18;
         doc["palcount"]  = 8;
-        doc["ws"]        = 0;
+        doc["cpalcount"] = 0;
+        doc["maps"]      = serialized("[{\"id\":0}]");
 
         JsonObject leds  = doc["leds"].to<JsonObject>();
         leds["count"]    = n;
@@ -57,7 +61,7 @@ void MilaWebServer::begin(Config* cfg, ConfigStore* store, EffectsEngine* engine
         seglc.add(n);
         leds["lc"]       = 1;
         leds["rgbw"]     = false;
-        leds["wv"]       = false;
+        leds["wv"]       = 0;
         leds["cct"]      = 0;
 
         JsonObject wifi  = doc["wifi"].to<JsonObject>();
@@ -71,7 +75,7 @@ void MilaWebServer::begin(Config* cfg, ConfigStore* store, EffectsEngine* engine
         fs["t"]          = 1024;
         fs["pmt"]        = 0;
 
-        doc["ndc"]       = 0;  // 0 = LED count is read-only
+        doc["ndc"]       = 0;
 
         String out;
         serializeJson(doc, out);
@@ -79,7 +83,7 @@ void MilaWebServer::begin(Config* cfg, ConfigStore* store, EffectsEngine* engine
     });
 
     // WLED-compatible state endpoint
-    _http.on("/json/state", HTTP_GET, [this]() {
+    auto sendState = [this]() {
         uint16_t n = _engine->virtualCount();
         StaticJsonDocument<512> doc;
         doc["on"]        = true;
@@ -125,6 +129,16 @@ void MilaWebServer::begin(Config* cfg, ConfigStore* store, EffectsEngine* engine
         String out;
         serializeJson(doc, out);
         _http.send(200, "application/json", out);
+    };
+    _http.on("/json/state", HTTP_GET, sendState);
+
+    // Hyperion sends POST to /json and /json/state to configure the device.
+    // Just acknowledge with 200 OK — actual config is handled via WebSocket.
+    _http.on("/json/state", HTTP_POST, [this]() {
+        _http.send(200, "application/json", "{\"success\":true}");
+    });
+    _http.on("/json", HTTP_POST, [this]() {
+        _http.send(200, "application/json", "{\"success\":true}");
     });
 
     // Serve other assets; look for .gz variant first.
