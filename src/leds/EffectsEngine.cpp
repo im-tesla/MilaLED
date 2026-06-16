@@ -1,20 +1,39 @@
 #include "EffectsEngine.h"
 
-// ── Hyperion UDP globals (always-on listener, shared with HyperionEffect) ──
+// ── Hyperion UDP globals (always-on listener on both RAW + DDP ports) ──
 #include <WiFiUdp.h>
-static WiFiUDP _hyUdp;
+static WiFiUDP _hyRaw;    // port 19446 — RAW RGB
+static WiFiUDP _hyDdp;    // port 4048  — DDP (default Hyperion WLED protocol)
 static bool    _hyReady = false;
 uint8_t        _hBuf[1536];
 uint16_t       _hLen  = 0;
 uint32_t       _hLast = 0;
 
 void hyperionLoop() {
-    if (!_hyReady) { _hyUdp.begin(19446); _hyReady = true; }  // WLED udpRgbPort (Hyperion streams here)
-    uint16_t sz = _hyUdp.parsePacket();
-    if (sz < 4 || sz > (uint16_t)sizeof(_hBuf)) return;
-    _hLen = sz;
-    _hyUdp.read(_hBuf, sz);
-    _hLast = millis();
+    if (!_hyReady) {
+        _hyRaw.begin(19446);  // WLED udpRgbPort — RAW RGB stream
+        _hyDdp.begin(4048);   // DDP default port
+        _hyReady = true;
+    }
+
+    // Try RAW port first
+    uint16_t sz = _hyRaw.parsePacket();
+    if (sz >= 3 && sz <= sizeof(_hBuf)) {
+        _hLen = sz;
+        _hyRaw.read(_hBuf, sz);
+        _hLast = millis();
+        return;
+    }
+
+    // Try DDP port — strip 10-byte DDP header
+    sz = _hyDdp.parsePacket();
+    if (sz >= 13 && sz - 10 <= sizeof(_hBuf)) {  // DDP header = 10 bytes
+        uint8_t ddpHeader[10];
+        _hyDdp.read(ddpHeader, 10);  // discard header
+        _hLen = sz - 10;
+        _hyDdp.read(_hBuf, _hLen);
+        _hLast = millis();
+    }
 }
 
 #define EFFECTS_ENGINE

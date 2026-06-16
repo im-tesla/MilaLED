@@ -35,7 +35,7 @@ void MilaWebServer::begin(Config* cfg, ConfigStore* store, EffectsEngine* engine
         // Build the state object used by /json/state and /json (si)
         auto getState = [&](JsonObject st) {
             st["on"] = true; st["bri"] = 255; st["transition"] = 7;
-            st["ps"] = -1; st["pl"] = -1; st["lor"] = 0; st["mainseg"] = 0;
+            st["ps"] = -1; st["pl"] = -1; st["lor"] = 0; st["mainseg"] = 0; st["ledmap"] = 0;
             JsonObject nl = st["nl"].to<JsonObject>();
             nl["on"] = false; nl["dur"] = 60; nl["mode"] = 1; nl["tbri"] = 0; nl["rem"] = -1;
             JsonObject udpn = st["udpn"].to<JsonObject>();
@@ -54,7 +54,7 @@ void MilaWebServer::begin(Config* cfg, ConfigStore* store, EffectsEngine* engine
             info["freeheap"] = ESP.getFreeHeap(); info["uptime"] = millis()/1000;
             info["opt"] = 0; info["brand"] = "WLED"; info["product"] = "FOSS";
             info["mac"] = WiFi.macAddress(); info["ip"] = WiFi.localIP().toString();
-            info["str"] = false; info["udpport"] = 21324; info["live"] = false;
+            info["str"] = false; info["udpport"] = 21324; info["simplifiedui"] = false; info["live"] = false;
             info["liveseg"] = -1; info["lm"] = ""; info["lip"] = ""; info["ws"] = 0;
             info["fxcount"] = 18; info["palcount"] = 8; info["cpalcount"] = 0;
             info["clock"] = 160; info["flash"] = 4; info["ndc"] = 0;
