@@ -241,6 +241,18 @@ void EffectsEngine::tick() {
     if (!_active) return;
 
     _active->tick(_vbuf, _virtCount, _params);
+
+    // Apply intensity as a global brightness scale on the virtual buffer.
+    // Individual effects may also interpret intensity for behaviour (tail
+    // length, sparkle count, etc.), but this ensures EVERY effect responds
+    // to the intensity slider as a dimmer.
+    if (_params.intensity < 255) {
+        uint8_t scale = map(_params.intensity, 0, 255, 16, 255);  // floor at 6%
+        for (uint16_t i = 0; i < _virtCount; i++) {
+            _vbuf[i].nscale8(scale);
+        }
+    }
+
     flushVirtualToPhysical();
     FastLED.show();
 }

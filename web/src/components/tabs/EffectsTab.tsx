@@ -22,6 +22,11 @@ export function EffectsTab({ state, update }: Props) {
   const { t } = useTranslation()
   const activeId = EFFECT_IDS.includes(state.effect as EffectId) ? state.effect as EffectId : null
 
+  // Effects that don't use speed / intensity sliders
+  const noSliders  = activeId === 'ambilight' || activeId === 'hyperion'
+  const noSpeed    = noSliders
+  const noIntensity = noSliders
+
   return (
     <div className="space-y-4">
       {activeId && (
@@ -34,16 +39,20 @@ export function EffectsTab({ state, update }: Props) {
               {t('effects.active')}
             </Badge>
           </div>
-          <ParamSlider
-            label={t('effects.speed')}
-            value={state.speed}
-            onChange={v => update({ speed: v })}
-          />
-          <ParamSlider
-            label={t('effects.intensity')}
-            value={state.intensity}
-            onChange={v => update({ intensity: v })}
-          />
+          {!noSpeed && (
+            <ParamSlider
+              label={t('effects.speed')}
+              value={state.speed}
+              onChange={v => update({ speed: v })}
+            />
+          )}
+          {!noIntensity && (
+            <ParamSlider
+              label={t('effects.intensity')}
+              value={state.intensity}
+              onChange={v => update({ intensity: v })}
+            />
+          )}
         </div>
       )}
       <div className="grid grid-cols-2 gap-2">
