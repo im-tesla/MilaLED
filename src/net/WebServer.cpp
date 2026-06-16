@@ -25,17 +25,22 @@ void MilaWebServer::begin(Config* cfg, ConfigStore* store, EffectsEngine* engine
     // WLED-compatible JSON info endpoint — Hyperion/HyperHDR validates
     // the device by requesting /json/info before streaming UDP data.
     _http.on("/json/info", HTTP_GET, [this]() {
-        StaticJsonDocument<512> doc;
-        doc["ver"]       = "0.14.0";         // WLED version alias
+        uint16_t nLeds = _engine->virtualCount();
+        StaticJsonDocument<768> doc;
+        doc["ver"]       = "0.14.0";
         doc["vid"]       = 2401010;
         doc["name"]      = "MilaLED";
         doc["arch"]      = "esp32";
         doc["core"]      = "MilaLED";
         doc["lwip"]      = 0;
         doc["uptime"]    = millis() / 1000;
+        doc["brand"]     = "WLED";
+        doc["product"]   = "FOSS";
+        doc["mac"]       = WiFi.macAddress();
+        doc["ip"]        = WiFi.localIP().toString();
 
         JsonObject leds  = doc["leds"].to<JsonObject>();
-        leds["count"]    = _engine->virtualCount();
+        leds["count"]    = nLeds;
         leds["rgbw"]     = false;
         leds["wv"]       = false;
         leds["pwr"]      = 0;
@@ -54,9 +59,7 @@ void MilaWebServer::begin(Config* cfg, ConfigStore* store, EffectsEngine* engine
         fs["t"]          = 1024;
         fs["pmt"]        = 1024;
 
-        doc["ndc"]       = 1;                // LED count configurable
-        doc["mac"]       = WiFi.macAddress();
-        doc["ip"]        = WiFi.localIP().toString();
+        doc["ndc"]       = nLeds;
 
         String out;
         serializeJson(doc, out);
