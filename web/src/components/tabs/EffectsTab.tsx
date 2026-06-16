@@ -27,7 +27,7 @@ export function EffectsTab({ state, update }: Props) {
   // comet/cylon/theater/fire/meteor/sparkle → both.
   // breathing/lava/ocean/perlinflow/rainbow/running/strobe/twinkle → speed only.
   // ambilight/hyperion → neither (externally driven).
-  const hideSpeed     = ['solid','ambilight','hyperion'].includes(activeId || '')
+  const hideSpeed     = ['solid','colortemp','ambilight','hyperion'].includes(activeId || '')
   const hideIntensity = ['solid','breathing','lava','ocean','perlinflow',
                           'rainbow','running','strobe','twinkle',
                           'ambilight','hyperion'].includes(activeId || '')
