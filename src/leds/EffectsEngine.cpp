@@ -293,46 +293,30 @@ void EffectsEngine::ambilightPoll() {
 }
 
 void EffectsEngine::flushHyperion() {
-    uint32_t now = millis();
-
     if (!_active || strcmp(_active->id(), "hyperion") != 0) return;
     if (!_leds || _physCount == 0) return;
 
-    if (_hLen >= 3) {
-        const uint8_t* p = _hBuf;
-        uint16_t offset = 0;
+    if (_hLen < 3) return;  // no new data — keep last frame
 
-        // DDP packet: 10-byte header + RGB data. Packet size = 10 + n*3.
-        // RAW packet: just RGB data. Packet size = n*3.
-        // If _hLen is NOT divisible by 3, there's a header present.
-        if ((_hLen % 3) != 0) {
-            // DDP: skip 10-byte header
-            uint8_t ddpFlags = p[0];
-            offset = 10;
-            // Verify flags field matches DDP (bit 7 = version 1, bits 0-2 = push)
-            if ((ddpFlags & 0x40) == 0) {
-                // Not a valid DDP packet, skip
-                _hLen = 0;
-                return;
-            }
-        }
+    const uint8_t* p = _hBuf;
+    uint16_t offset = 0;
 
-        uint16_t n = (_hLen - offset) / 3;
-        uint16_t max = _physCount < n ? _physCount : n;
-        for (uint16_t i = 0; i < max; i++) {
-            uint16_t off = offset + i * 3;
-            _leds[i].r = p[off];
-            _leds[i].g = p[off+1];
-            _leds[i].b = p[off+2];
-        }
-        _hLen = 0;
-        FastLED.show();
-    } else if (_hLast > 0 && now - _hLast > 2500) {
-        fill_solid(_leds, _physCount, CRGB::Black);
-        _hLen  = 0;
-        _hLast = 0;
-        FastLED.show();
+    // DDP: 10-byte header → _hLen % 3 != 0. RAW: just RGB → _hLen % 3 == 0.
+    if ((_hLen % 3) != 0) {
+        offset = 10;
+        if ((p[0] & 0x40) == 0) { _hLen = 0; return; }  // not valid DDP
     }
+
+    uint16_t n = (_hLen - offset) / 3;
+    uint16_t max = _physCount < n ? _physCount : n;
+    for (uint16_t i = 0; i < max; i++) {
+        uint16_t off = offset + i * 3;
+        _leds[i].r = p[off];
+        _leds[i].g = p[off+1];
+        _leds[i].b = p[off+2];
+    }
+    _hLen = 0;
+    FastLED.show();
 }
 
 void EffectsEngine::flushVirtualToPhysical() {
