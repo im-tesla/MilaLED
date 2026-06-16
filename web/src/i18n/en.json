@@ -33,6 +33,8 @@
     "strip": "Strip",
     "virtual": "Virtual LEDs",
     "addSegment": "Add segment",
+    "more": "More",
+    "less": "Less",
     "half": "Half (skip every other)",
     "full": "Full",
     "dataPin": "LED data pin",

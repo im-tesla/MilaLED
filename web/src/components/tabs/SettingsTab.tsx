@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { WifiHigh, MagnifyingGlass, ArrowCounterClockwise, Stop, Plus, Trash } from '@phosphor-icons/react'
+import { WifiHigh, MagnifyingGlass, ArrowCounterClockwise, Stop, Plus, Trash, CaretDown } from '@phosphor-icons/react'
 import { AmbilightStatus } from '@/components/shared/AmbilightStatus'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -44,6 +44,13 @@ const COLOR_ORDERS = ['RGB', 'RBG', 'GRB', 'GBR', 'BRG', 'BGR']
 const CHIPSETS = ['WS2811', 'WS2812B', 'WS2815', 'WS2813', 'SK6812']
 
 const MAX_SEGMENTS = 4
+
+const EFFECT_IDS = [
+  'solid', 'colortemp', 'rainbow', 'comet', 'cylon',
+  'theater', 'running', 'fire2012', 'lava', 'ocean',
+  'twinkle', 'meteor', 'sparkle', 'breathing', 'strobe',
+  'perlinflow', 'ambilight', 'hyperion',
+]
 
 interface Props {
   state: LedState
@@ -131,6 +138,8 @@ export function SettingsTab({ state, update, scanProgress, foundTvs }: Props) {
     await fetch('/api/wifi/reset', { method: 'POST' }).catch(() => {})
   }
 
+  const [expandedSeg, setExpandedSeg] = useState<number | null>(null)
+
   const activeSegs = segments.filter(s => s.count > 0)
 
   return (
@@ -149,12 +158,50 @@ export function SettingsTab({ state, update, scanProgress, foundTvs }: Props) {
             </span>
           </div>
 
+          {/* Strip visualization */}
+          {localPhys > 0 && (
+            <div className="space-y-1">
+              <div className="h-4 bg-zinc-800 rounded-full overflow-hidden flex">
+                {segments.filter(s => s.count > 0).map((seg, idx) => {
+                  const pct = (seg.count / localPhys) * 100
+                  const colors = ['bg-amber-400', 'bg-blue-400', 'bg-emerald-400', 'bg-violet-400']
+                  if (pct < 2) return null
+                  return (
+                    <div
+                      key={idx}
+                      className={`${colors[idx]} h-full transition-all duration-300 flex items-center justify-center`}
+                      style={{ width: `${pct}%` }}
+                    >
+                      {pct > 8 && (
+                        <span className="text-[8px] font-bold text-zinc-950 opacity-60">
+                          {idx + 1}
+                        </span>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+              <div className="flex text-[10px] text-zinc-500">
+                {segments.filter(s => s.count > 0).map((seg, idx) => {
+                  const pct = (seg.count / localPhys) * 100
+                  if (pct < 5) return null
+                  return (
+                    <div key={idx} style={{ width: `${pct}%` }} className="text-center truncate">
+                      {seg.count}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
           {/* Segment list */}
           <div className="space-y-2">
             {segments.map((seg, idx) => (
-              <div key={idx} className={`rounded-lg border p-2 space-y-1.5 ${
+              <div key={idx} className={`rounded-lg border p-2 space-y-2 ${
                 seg.count > 0 ? 'border-zinc-700/60 bg-zinc-800/50' : 'border-zinc-800 border-dashed'
               }`}>
+                {/* Top row: label, count, effect dropdown */}
                 <div className="flex items-center gap-2">
                   <span className="text-[10px] text-zinc-500 w-12 shrink-0">Seg {idx + 1}</span>
                   <Input
@@ -164,38 +211,95 @@ export function SettingsTab({ state, update, scanProgress, foundTvs }: Props) {
                     min={0} max={2000}
                     className="bg-zinc-800 border-zinc-700 text-zinc-100 text-sm h-8 w-20 text-center"
                   />
-                  <div className="flex gap-1 ml-auto">
-                    <button
-                      onClick={() => setSegment(idx, { half: false })}
-                      className={`px-2 py-1 rounded text-[10px] font-medium transition-colors ${
-                        !seg.half ? 'border-amber-400/60 text-amber-400 bg-amber-400/5 border' : 'text-zinc-500'
-                      }`}
-                    >
-                      {t('settings.full')}
-                    </button>
-                    <button
-                      onClick={() => setSegment(idx, { half: true })}
-                      className={`px-2 py-1 rounded text-[10px] font-medium transition-colors ${
-                        seg.half ? 'border-amber-400/60 text-amber-400 bg-amber-400/5 border' : 'text-zinc-500'
-                      }`}
-                    >
-                      {t('settings.half')}
-                    </button>
-                    {activeSegs.length > 1 && seg.count > 0 && (
+                  {seg.count > 0 && (
+                    <div className="flex gap-2 flex-1 min-w-0">
+                      <div className="flex gap-1">
+                        <button
+                          onClick={() => setSegment(idx, { half: false })}
+                          className={`px-2 py-1 rounded text-[10px] font-medium transition-colors ${
+                            !seg.half ? 'border-amber-400/60 text-amber-400 bg-amber-400/5 border' : 'text-zinc-500'
+                          }`}
+                        >
+                          {t('settings.full')}
+                        </button>
+                        <button
+                          onClick={() => setSegment(idx, { half: true })}
+                          className={`px-2 py-1 rounded text-[10px] font-medium transition-colors ${
+                            seg.half ? 'border-amber-400/60 text-amber-400 bg-amber-400/5 border' : 'text-zinc-500'
+                          }`}
+                        >
+                          {t('settings.half')}
+                        </button>
+                      </div>
                       <button
-                        onClick={() => removeSegment(idx)}
-                        className="text-zinc-500 hover:text-red-400 transition-colors px-1"
+                        onClick={() => setExpandedSeg(expandedSeg === idx ? null : idx)}
+                        className="ml-auto text-zinc-500 hover:text-amber-400 transition-colors flex items-center gap-1 text-[10px]"
                       >
-                        <Trash size={12} />
+                        <CaretDown size={10} className={expandedSeg === idx ? 'rotate-180' : ''} />
+                        {expandedSeg === idx ? t('settings.less') : t('settings.more')}
                       </button>
-                    )}
-                  </div>
+                      {activeSegs.length > 1 && (
+                        <button
+                          onClick={() => removeSegment(idx)}
+                          className="text-zinc-500 hover:text-red-400 transition-colors px-1"
+                        >
+                          <Trash size={12} />
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
+
+                {/* Virtual count */}
                 {seg.count > 0 && (
                   <div className="text-[10px] text-zinc-500 ml-14">
                     {seg.half
                       ? `${Math.floor(seg.count / 2)} virtual (every other LED skipped)`
                       : `${seg.count} virtual (1:1)`}
+                  </div>
+                )}
+
+                {/* Expanded: per-segment effect, speed, intensity */}
+                {expandedSeg === idx && seg.count > 0 && (
+                  <div className="ml-14 space-y-2 pt-1 border-t border-zinc-700/50">
+                    <div className="space-y-1">
+                      <span className="text-[10px] text-zinc-500">{t('effects.active')}</span>
+                      <div className="grid grid-cols-3 gap-1">
+                        {EFFECT_IDS.map((eid, ei) => (
+                          <button
+                            key={eid}
+                            onClick={() => setSegment(idx, { effect: ei })}
+                            className={`py-1 px-1.5 rounded text-[10px] transition-colors ${
+                              (seg.effect ?? 0) === ei
+                                ? 'border-amber-400/60 text-amber-400 bg-amber-400/5 border'
+                                : 'border border-zinc-700 text-zinc-400 hover:border-zinc-600'
+                            }`}
+                          >
+                            {t(`effects.names.${eid}`)}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <span className="text-[10px] text-zinc-500">{t('effects.speed')}</span>
+                      <input
+                        type="range"
+                        value={seg.speed ?? 128}
+                        onChange={e => setSegment(idx, { speed: Number(e.target.value) })}
+                        min={0} max={255}
+                        className="w-full h-1 accent-amber-400"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <span className="text-[10px] text-zinc-500">{t('effects.intensity')}</span>
+                      <input
+                        type="range"
+                        value={seg.intensity ?? 128}
+                        onChange={e => setSegment(idx, { intensity: Number(e.target.value) })}
+                        min={0} max={255}
+                        className="w-full h-1 accent-amber-400"
+                      />
+                    </div>
                   </div>
                 )}
               </div>

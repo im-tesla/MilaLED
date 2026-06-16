@@ -6,8 +6,11 @@
 struct SegmentCfg {
     uint16_t count;
     bool     half;
-    SegmentCfg() : count(0), half(false) {}
-    SegmentCfg(uint16_t c, bool h) : count(c), half(h) {}
+    uint8_t  effect = 0;   // effect index (0=solid..17=hyperion)
+    uint8_t  speed  = 128;
+    uint8_t  intensity = 128;
+    SegmentCfg() : count(0), half(false), effect(0), speed(128), intensity(128) {}
+    SegmentCfg(uint16_t c, bool h) : count(c), half(h), effect(0), speed(128), intensity(128) {}
 };
 
 struct Config {
