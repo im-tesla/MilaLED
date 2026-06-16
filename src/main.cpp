@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <LittleFS.h>
 #include <ArduinoOTA.h>
+#include "version.h"
 #include "config/ConfigStore.h"
 #include "leds/EffectsEngine.h"
 #include "wifi/NetworkManager.h"
@@ -16,10 +17,23 @@ static uint32_t lastSave = 0;
 
 void setup() {
     Serial.begin(115200);
+    delay(200);
+    Serial.println();
+    Serial.println("MilaLED " MILALED_VERSION);
+    Serial.println("──────────────────");
 
+    Serial.println("[init]  mounting LittleFS...");
     cfgStore.begin();    // mounts LittleFS
+
+    Serial.println("[init]  loading config...");
     cfgStore.load(cfg);  // loads saved config or uses defaults
 
+    Serial.printf("[init]  segA:%u %s  segB:%u %s  pin:%u chip:%u order:%u\n",
+        cfg.segALeds, cfg.segAHalf ? "half" : "full",
+        cfg.segBLeds, cfg.segBHalf ? "half" : "full",
+        cfg.dataPin, cfg.chipset, cfg.colorOrder);
+
+    Serial.println("[init]  starting FastLED...");
     engine.begin(cfg);   // allocates LED arrays, sets up FastLED
     engine.setStatus(EffectsEngine::STATUS_BOOTING);  // blue pulse
 
@@ -29,23 +43,29 @@ void setup() {
         delay(20);
     }
 
+    Serial.println("[wifi]  connecting (or opening config portal)...");
     network.begin("MilaLED");  // AP+STA WiFi, blocks until connected or timeout
 
     LittleFS.mkdir("/presets"); // ensure preset directory exists
 
+    Serial.println("[http]  starting web server...");
     webServer.begin(&cfg, &cfgStore, &engine);
 
+    Serial.println("[ota]   starting ArduinoOTA...");
     ArduinoOTA.setHostname("milaled");
     ArduinoOTA.begin();
 
     // Show status on strip: green if connected, yellow blink if AP mode
     if (network.isConnected()) {
+        Serial.print("[wifi]  connected! "); Serial.println(network.localIP().c_str());
         engine.setStatus(EffectsEngine::STATUS_OK);
     } else {
+        Serial.println("[wifi]  AP mode — connect to 'MilaLED' hotspot");
         engine.setStatus(EffectsEngine::STATUS_AP_MODE);
     }
 
-    Serial.println("MilaLED ready");
+    Serial.println("──────────────────");
+    Serial.println("ready");
 }
 
 void loop() {
