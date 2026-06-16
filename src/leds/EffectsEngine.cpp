@@ -284,13 +284,11 @@ void EffectsEngine::tick() {
 }
 
 void EffectsEngine::flushHyperion() {
-    static uint32_t cnt = 0, last = 0;
     uint32_t now = millis();
 
     if (!_active || strcmp(_active->id(), "hyperion") != 0) return;
     if (!_leds || _physCount == 0) return;
 
-    // Only show when new UDP data arrived — don't re-show stale frames
     if (_hLen >= 3) {
         const uint8_t* p = _hBuf;
         uint16_t n = _hLen / 3;
@@ -301,19 +299,13 @@ void EffectsEngine::flushHyperion() {
             _leds[i].g = p[off+1];
             _leds[i].b = p[off+2];
         }
-        _hLen = 0;  // consume — don't re-show this frame
+        _hLen = 0;
         FastLED.show();
-        cnt++;
     } else if (_hLast > 0 && now - _hLast > 2500) {
         fill_solid(_leds, _physCount, CRGB::Black);
         _hLen  = 0;
         _hLast = 0;
         FastLED.show();
-    }
-
-    if (now - last >= 1000) {
-        Serial.printf("[hyperion] fps=%u\n", cnt);
-        cnt = 0; last = now;
     }
 }
 
