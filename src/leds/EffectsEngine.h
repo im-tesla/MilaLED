@@ -47,9 +47,10 @@ private:
     uint16_t     _physCount = 0;
     uint16_t     _virtCount = 0;
 
-    // Auxiliary 1-LED arrays for status broadcast on all GPIOs
-    static const uint8_t MAX_AUX = 16;
-    CRGB          _auxLeds[MAX_AUX] = {};
+    // Auxiliary buffer for status broadcast — 100 LEDs per GPIO pin
+    static const uint8_t  MAX_AUX  = 4;
+    static const uint16_t AUX_N    = 100;
+    CRGB          _auxBuf[MAX_AUX * AUX_N] = {};
     uint8_t       _auxCount = 0;
 
     EffectBase*  _active    = nullptr;

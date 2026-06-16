@@ -120,33 +120,30 @@ void EffectsEngine::begin(const Config& cfg) {
 #undef ORDER_CASES
     FastLED.setBrightness(cfg.brightness);
 
-    // ── Status broadcast on ALL supported GPIOs ──────────
-    // Register 1-LED controllers for every pin so boot/AP status
-    // lights up the strip regardless of which pin is physically wired.
-    // Uses the same chipset and color order as the main strip config.
+    // ── Status broadcast on extra GPIOs ──────────────────
+    // Register 100-LED controllers on a handful of GPIOs so the boot/AP
+    // status colour lights the whole strip even if the saved dataPin differs.
 #define AUX_LED(CHIP, PIN, ORDER) \
-    FastLED.addLeds<CHIP, PIN, ORDER>(&_auxLeds[_auxCount++], 1);
+    FastLED.addLeds<CHIP, PIN, ORDER>(_auxBuf + _auxCount * AUX_N, AUX_N); \
+    _auxCount++;
 
-#if defined(CONFIG_IDF_TARGET_ESP32C3) || defined(CONFIG_IDF_TARGET_ESP32C6)
-#define AUX_PINS(CHIP, ORDER) { _auxCount = 0; \
-    AUX_LED(CHIP,  2, ORDER) AUX_LED(CHIP,  4, ORDER) \
-    AUX_LED(CHIP,  5, ORDER) AUX_LED(CHIP, 21, ORDER) \
-}
-#elif defined(CONFIG_IDF_TARGET_ESP32) || defined(CONFIG_IDF_TARGET_ESP32S2) || defined(CONFIG_IDF_TARGET_ESP32S3)
+#if defined(CONFIG_IDF_TARGET_ESP32) || defined(CONFIG_IDF_TARGET_ESP32S2) || defined(CONFIG_IDF_TARGET_ESP32S3)
 #define AUX_PINS(CHIP, ORDER) { _auxCount = 0; \
     AUX_LED(CHIP,  2, ORDER) AUX_LED(CHIP,  4, ORDER) \
     AUX_LED(CHIP,  5, ORDER) AUX_LED(CHIP, 12, ORDER) \
-    AUX_LED(CHIP, 13, ORDER) AUX_LED(CHIP, 14, ORDER) \
-    AUX_LED(CHIP, 15, ORDER) AUX_LED(CHIP, 16, ORDER) \
-    AUX_LED(CHIP, 21, ORDER) AUX_LED(CHIP, 22, ORDER) \
-    AUX_LED(CHIP, 27, ORDER) AUX_LED(CHIP, 32, ORDER) \
+    AUX_LED(CHIP, 21, ORDER) AUX_LED(CHIP, 32, ORDER) \
+}
+#elif defined(CONFIG_IDF_TARGET_ESP32C3) || defined(CONFIG_IDF_TARGET_ESP32C6)
+#define AUX_PINS(CHIP, ORDER) { _auxCount = 0; \
+    AUX_LED(CHIP, 21, ORDER) \
+    AUX_LED(CHIP,  2, ORDER) \
+    AUX_LED(CHIP,  4, ORDER) \
+    AUX_LED(CHIP,  5, ORDER) \
 }
 #else  // ESP8266
 #define AUX_PINS(CHIP, ORDER) { _auxCount = 0; \
     AUX_LED(CHIP,  2, ORDER) AUX_LED(CHIP,  4, ORDER) \
-    AUX_LED(CHIP,  5, ORDER) AUX_LED(CHIP, 12, ORDER) \
-    AUX_LED(CHIP, 13, ORDER) AUX_LED(CHIP, 14, ORDER) \
-    AUX_LED(CHIP, 15, ORDER) AUX_LED(CHIP, 16, ORDER) \
+    AUX_LED(CHIP,  5, ORDER) \
 }
 #endif
 
@@ -234,10 +231,10 @@ void EffectsEngine::tick() {
                 break;
         }
 
-        // Write status color to ALL outputs: main strip + every aux GPIO
+        // Write status color to main strip + all aux GPIOs
         fill_solid(_leds, _physCount, statusColor);
         for (uint8_t i = 0; i < _auxCount; i++) {
-            _auxLeds[i] = statusColor;
+            fill_solid(_auxBuf + i * AUX_N, AUX_N, statusColor);
         }
         FastLED.show();
         if (_status != STATUS_NONE) return;
