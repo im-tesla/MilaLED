@@ -25,14 +25,17 @@ ESP8266 / ESP32 Wi-Fi LED strip controller with a modern mobile-first web interf
 
 ## Features
 
-- **17 animated effects** — Rainbow, Fire, Comet, Ocean, Breathing, Strobe, and more
-- **Philips Ambilight integration** — mirror your Philips TV's ambient lighting
+- **18 animated effects** — Rainbow, Fire, Comet, Ocean, Breathing, Strobe, and more
+- **Philips Ambilight integration** — mirror your Philips TV's ambient lighting (zero-latency HTTP polling)
+- **Hyperion/HyperHDR support** — WLED-compatible UDP streaming (DDP + RAW, ports 4048 + 19446)
 - **Network scanner** — automatically discover Philips TVs on your LAN
 - **Two-segment strip support** — configurable LED counts with half-density skipping
 - **Configurable color order** — RGB, GRB, BRG — match whatever your strip expects
+- **Configurable chipset** — WS2811, WS2812B, WS2815, WS2813, SK6812
 - **Presets** — save and recall your favorite setups
 - **English / Polish** — auto-detected, toggleable
 - **Dark & light theme**
+- **LED status indicator** — blue boot, yellow AP mode, green connected
 - **No cloud, no app, no account** — self-contained on the ESP
 
 ## Supported boards
@@ -41,6 +44,7 @@ ESP8266 / ESP32 Wi-Fi LED strip controller with a modern mobile-first web interf
 |----------|--------|-----|-------|
 | **ESP8266** | ESP-12E, NodeMCU, Wemos D1 mini, Adafruit HUZZAH | 80 KB | 2-4 MB |
 | **ESP32** | ESP32 DevKit, NodeMCU-32S, ESP32-S3, ESP32-C6 | 320-520 KB | 4-16 MB |
+| **ESP32-C3** | LOLIN C3 Mini, ESP32-C3 Super Mini | 320 KB | 4 MB |
 
 Virtually any ESP8266 with ≥2MB flash or any ESP32 with ≥4MB flash works. See `platformio.ini` for pre-configured environments — just uncomment your board.
 
@@ -76,9 +80,10 @@ default_envs = nodemcuv2  # NodeMCU 1.0
 default_envs = d1_mini    # Wemos D1 mini
 
 ; ESP32
-default_envs = esp32dev           # ESP32 DevKit / WROOM
-default_envs = nodemcu-32s        # ESP32-S2
-default_envs = esp32-s3-devkitc-1 # ESP32-S3
+default_envs = esp32dev            # ESP32 DevKit / WROOM
+default_envs = nodemcu-32s         # ESP32-S2
+default_envs = esp32-s3-devkitc-1  # ESP32-S3
+default_envs = esp32-c3-supermini  # ESP32-C3 Super Mini
 ```
 
 ### 3. Build the web UI
@@ -146,8 +151,22 @@ pio device monitor          # serial output (115200 baud)
 | `/api/ambilight/scan` | POST | Start network scan for Philips TVs |
 | `/api/ambilight/scan/cancel` | POST | Cancel running scan |
 | `/api/wifi/reset` | POST | Erase Wi-Fi credentials, restart in AP mode |
+| `/json/info` | GET | WLED-compatible device info (Hyperion uses this) |
+| `/json/state` | GET/POST | WLED-compatible state (Hyperion configures via this) |
+| `/json` | GET/POST | Combined state+info (Hyperion discovery) |
 
 WebSocket commands are simple JSON: `{"power": true}`, `{"brightness": 180}`, `{"effect": "fire2012"}`, etc. The ESP broadcasts full state to all connected clients on connect and after any discrete change.
+
+### Hyperion / HyperHDR
+
+MilaLED emulates a WLED device for seamless Hyperion integration:
+
+1. Activate the **Hyperion / HyperHDR** effect in the Effects tab
+2. In Hyperion, add a **WLED** controller pointing to your ESP's IP address
+3. The ESP auto-discovers via mDNS (\_wled.\_tcp) and accepts streams on both:
+   - **DDP** (port 4048) — default Hyperion WLED protocol
+   - **RAW** (port 19446) — WLED raw RGB port
+4. Zero-latency: UDP frames bypass the effect pipeline and write directly to the LED strip
 
 ## License
 
