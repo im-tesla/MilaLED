@@ -22,31 +22,43 @@ void MilaWebServer::begin(Config* cfg, ConfigStore* store, EffectsEngine* engine
         f.close();
     });
 
-    // WLED-compatible JSON info endpoint — Hyperion/HyperHDR validates
-    // the device by requesting /json/info before streaming UDP data.
+    // WLED-compatible JSON info endpoint — Hyperion validates this
     _http.on("/json/info", HTTP_GET, [this]() {
-        uint16_t nLeds = _engine->virtualCount();
+        uint16_t n = _engine->virtualCount();
         StaticJsonDocument<768> doc;
-        doc["ver"]       = "0.14.0";
-        doc["vid"]       = 2401010;
+        doc["ver"]       = "0.14.1";      // WLED version alias
+        doc["vid"]       = 2405180;
         doc["name"]      = "MilaLED";
         doc["arch"]      = "esp32";
-        doc["core"]      = "MilaLED";
-        doc["lwip"]      = 0;
+        doc["core"]      = "3.1.2";
+        doc["lwip"]      = 2;
+        doc["freeheap"]  = ESP.getFreeHeap();
         doc["uptime"]    = millis() / 1000;
+        doc["opt"]       = 0;
         doc["brand"]     = "WLED";
         doc["product"]   = "FOSS";
         doc["mac"]       = WiFi.macAddress();
         doc["ip"]        = WiFi.localIP().toString();
+        doc["str"]       = false;
+        doc["udpport"]   = 21324;
+        doc["live"]      = false;
+        doc["liveseg"]   = -1;
+        doc["fxcount"]   = 18;
+        doc["palcount"]  = 8;
+        doc["ws"]        = 0;
 
         JsonObject leds  = doc["leds"].to<JsonObject>();
-        leds["count"]    = nLeds;
-        leds["rgbw"]     = false;
-        leds["wv"]       = false;
+        leds["count"]    = n;
         leds["pwr"]      = 0;
+        leds["fps"]      = 0;
         leds["maxpwr"]   = 65000;
         leds["maxseg"]   = 1;
-        leds["matrix"]   = false;
+        JsonArray seglc  = leds["seglc"].to<JsonArray>();
+        seglc.add(n);
+        leds["lc"]       = 1;
+        leds["rgbw"]     = false;
+        leds["wv"]       = false;
+        leds["cct"]      = 0;
 
         JsonObject wifi  = doc["wifi"].to<JsonObject>();
         wifi["bssid"]    = WiFi.BSSIDstr();
@@ -57,9 +69,9 @@ void MilaWebServer::begin(Config* cfg, ConfigStore* store, EffectsEngine* engine
         JsonObject fs    = doc["fs"].to<JsonObject>();
         fs["u"]          = 0;
         fs["t"]          = 1024;
-        fs["pmt"]        = 1024;
+        fs["pmt"]        = 0;
 
-        doc["ndc"]       = nLeds;
+        doc["ndc"]       = 0;  // 0 = LED count is read-only
 
         String out;
         serializeJson(doc, out);
@@ -68,23 +80,48 @@ void MilaWebServer::begin(Config* cfg, ConfigStore* store, EffectsEngine* engine
 
     // WLED-compatible state endpoint
     _http.on("/json/state", HTTP_GET, [this]() {
-        StaticJsonDocument<256> doc;
+        uint16_t n = _engine->virtualCount();
+        StaticJsonDocument<512> doc;
         doc["on"]        = true;
-        doc["bri"]       = 128;
+        doc["bri"]       = 255;
         doc["transition"] = 7;
         doc["ps"]        = -1;
         doc["pl"]        = -1;
         JsonObject nl    = doc["nl"].to<JsonObject>();
         nl["on"]         = false;
-        nl["bri"]        = 0;
+        nl["dur"]        = 60;
+        nl["mode"]       = 1;
+        nl["tbri"]       = 0;
+        nl["rem"]        = -1;
+
+        JsonObject udpn  = doc["udpn"].to<JsonObject>();
+        udpn["send"]     = false;
+        udpn["recv"]     = true;
+        udpn["sgrp"]     = 1;
+        udpn["rgrp"]     = 1;
+        doc["lor"]       = 0;
+        doc["mainseg"]   = 0;
+
         JsonArray segs   = doc["seg"].to<JsonArray>();
         JsonObject seg   = segs.createNestedObject();
         seg["id"]        = 0;
         seg["start"]     = 0;
-        seg["stop"]      = _engine->virtualCount();
-        seg["len"]       = _engine->virtualCount();
+        seg["stop"]      = n;
+        seg["len"]       = n;
+        seg["grp"]       = 1;
+        seg["spc"]       = 0;
+        seg["of"]        = 0;
         seg["on"]        = true;
-        seg["bri"]       = 128;
+        seg["frz"]       = false;
+        seg["bri"]       = 255;
+        seg["cct"]       = 127;
+        seg["fx"]        = 0;
+        seg["sx"]        = 128;
+        seg["ix"]        = 128;
+        seg["sel"]       = true;
+        seg["rev"]       = false;
+        seg["mi"]        = false;
+
         String out;
         serializeJson(doc, out);
         _http.send(200, "application/json", out);
