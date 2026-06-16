@@ -22,7 +22,7 @@ public:
         _mapping[sizeof(_mapping) - 1] = '\0';
     }
 
-    void reset() override { _lastPoll = 0; _ambStatus = AMB_IDLE; }
+    void reset() override { _lastPoll = 0; _ambStatus = AMB_IDLE; _prevStatus = 255; }
 
     void tick(CRGB* leds, uint16_t count, const EffectParams& p) override {
         uint32_t now = millis();
@@ -42,6 +42,7 @@ private:
     char     _mapping[16] = "right";
     uint32_t _lastPoll    = 0;
     uint8_t  _ambStatus   = AMB_IDLE;
+    uint8_t  _prevStatus  = 255;  // force first print
 
     static const uint8_t MAX_ZONES = 10;
     AmbZone  _zones[MAX_ZONES] = {};
@@ -55,13 +56,20 @@ private:
         http.begin(client, url);
         http.setTimeout(500);
         int code = http.GET();
-        if (code != 200) { http.end(); _ambStatus = AMB_ERROR; return; }
+        if (code != 200) {
+            http.end();
+            if (_prevStatus != AMB_ERROR) { Serial.printf("[ambilight] HTTP %d polling %s\n", code, _tvIp); _prevStatus = AMB_ERROR; }
+            _ambStatus = AMB_ERROR; return;
+        }
 
         // Use stream parsing to save RAM
         StaticJsonDocument<2048> doc;
         DeserializationError err = deserializeJson(doc, http.getStream());
         http.end();
-        if (err || !doc.containsKey("layer1")) { _ambStatus = AMB_ERROR; return; }
+        if (err || !doc.containsKey("layer1")) {
+            if (_prevStatus != AMB_ERROR) { Serial.printf("[ambilight] bad JSON or missing layer1 @ %s\n", _tvIp); _prevStatus = AMB_ERROR; }
+            _ambStatus = AMB_ERROR; return;
+        }
 
         _ambStatus = AMB_POLLING;
 
@@ -83,6 +91,7 @@ private:
                 _zones[0] = { (uint8_t)(r / n), (uint8_t)(g / n), (uint8_t)(b / n) };
                 _zoneCount = 1;
             }
+            if (_prevStatus != AMB_POLLING) { Serial.printf("[ambilight] OK! avg zones=%u → (r%u,g%u,b%u)\n", _zoneCount, _zones[0].r, _zones[0].g, _zones[0].b); _prevStatus = AMB_POLLING; }
             return;
         }
 
@@ -96,6 +105,7 @@ private:
                 (uint8_t)(int)kv.value()["b"]
             };
         }
+        if (_prevStatus != AMB_POLLING) { Serial.printf("[ambilight] OK! mapping=%s zones=%u\n", _mapping, _zoneCount); _prevStatus = AMB_POLLING; }
     }
 
     void applyZones(CRGB* leds, uint16_t count) {
