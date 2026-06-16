@@ -22,145 +22,108 @@ void MilaWebServer::begin(Config* cfg, ConfigStore* store, EffectsEngine* engine
         f.close();
     });
 
-    // WLED-compatible JSON info endpoint — exact match to WLED 0.14+ schema
-    _http.on("/json/info", HTTP_GET, [this]() {
+    // ── WLED-compatible JSON endpoints ──────────────────
+    // All /json/* requests are dispatched by a single handler, matching
+    // WLED's serveJson() pattern. This avoids route collision issues with
+    // trailing slashes and POST/GET variants on the same URI.
+
+    auto handleJson = [this]() {
+        String uri = _http.uri();
+        HTTPMethod method = _http.method();
         uint16_t n = _engine->virtualCount();
-        StaticJsonDocument<768> doc;
-        doc["ver"]       = "0.14.1";
-        doc["vid"]       = 2405180;
-        doc["name"]      = "MilaLED";
-        doc["arch"]      = "esp32";
-        doc["core"]      = "3.1.2";
-        doc["lwip"]      = 2;
-        doc["freeheap"]  = ESP.getFreeHeap();
-        doc["uptime"]    = millis() / 1000;
-        doc["opt"]       = 0;
-        doc["brand"]     = "WLED";
-        doc["product"]   = "FOSS";
-        doc["mac"]       = WiFi.macAddress();
-        doc["ip"]        = WiFi.localIP().toString();
-        doc["str"]       = false;
-        doc["udpport"]   = 21324;
-        doc["live"]      = false;
-        doc["liveseg"]   = -1;
-        doc["lm"]        = "";
-        doc["lip"]       = "";
-        doc["ws"]        = 0;
-        doc["fxcount"]   = 18;
-        doc["palcount"]  = 8;
-        doc["cpalcount"] = 0;
-        doc["clock"]     = 160;
-#ifdef ESP32
-        doc["flash"]     = 4;
-#else
-        doc["flash"]     = 4;
-#endif
-        JsonArray maps  = doc["maps"].to<JsonArray>();
-        JsonObject map  = maps.createNestedObject();
-        map["id"]       = 0;
 
-        JsonObject leds  = doc["leds"].to<JsonObject>();
-        leds["count"]    = n;
-        leds["pwr"]      = 0;
-        leds["fps"]      = 0;
-        leds["maxpwr"]   = 65000;
-        leds["maxseg"]   = 1;
-        JsonArray seglc  = leds["seglc"].to<JsonArray>();
-        seglc.add(1);  // 1 = number of segments (LED count is in leds.count)
-        leds["lc"]       = 1;
-        leds["rgbw"]     = false;
-        leds["wv"]       = 0;
-        leds["cct"]      = 0;
+        // Build the state object used by /json/state and /json (si)
+        auto getState = [&](JsonObject st) {
+            st["on"] = true; st["bri"] = 255; st["transition"] = 7;
+            st["ps"] = -1; st["pl"] = -1; st["lor"] = 0; st["mainseg"] = 0;
+            JsonObject nl = st["nl"].to<JsonObject>();
+            nl["on"] = false; nl["dur"] = 60; nl["mode"] = 1; nl["tbri"] = 0; nl["rem"] = -1;
+            JsonObject udpn = st["udpn"].to<JsonObject>();
+            udpn["send"] = false; udpn["recv"] = true; udpn["sgrp"] = 1; udpn["rgrp"] = 1;
+            JsonArray segs = st["seg"].to<JsonArray>();
+            JsonObject seg = segs.createNestedObject();
+            seg["id"] = 0; seg["start"] = 0; seg["stop"] = n; seg["len"] = n;
+            seg["grp"] = 1; seg["spc"] = 0; seg["of"] = 0; seg["on"] = true;
+            seg["frz"] = false; seg["bri"] = 255; seg["cct"] = 127; seg["fx"] = 0;
+            seg["sx"] = 128; seg["ix"] = 128; seg["sel"] = true; seg["rev"] = false; seg["mi"] = false;
+        };
 
-        JsonObject wifi  = doc["wifi"].to<JsonObject>();
-        wifi["bssid"]    = WiFi.BSSIDstr();
-        wifi["rssi"]     = WiFi.RSSI();
-        wifi["signal"]   = WiFi.RSSI();
-        wifi["channel"]  = WiFi.channel();
+        auto getInfo = [&](JsonObject info) {
+            info["ver"] = "0.14.1"; info["vid"] = 2405180; info["name"] = "MilaLED";
+            info["arch"] = "esp32"; info["core"] = "3.1.2"; info["lwip"] = 2;
+            info["freeheap"] = ESP.getFreeHeap(); info["uptime"] = millis()/1000;
+            info["opt"] = 0; info["brand"] = "WLED"; info["product"] = "FOSS";
+            info["mac"] = WiFi.macAddress(); info["ip"] = WiFi.localIP().toString();
+            info["str"] = false; info["udpport"] = 21324; info["live"] = false;
+            info["liveseg"] = -1; info["lm"] = ""; info["lip"] = ""; info["ws"] = 0;
+            info["fxcount"] = 18; info["palcount"] = 8; info["cpalcount"] = 0;
+            info["clock"] = 160; info["flash"] = 4; info["ndc"] = 0;
+            JsonObject leds = info["leds"].to<JsonObject>();
+            leds["count"] = n; leds["pwr"] = 0; leds["fps"] = 0;
+            leds["maxpwr"] = 65000; leds["maxseg"] = 1;
+            leds["lc"] = 1; leds["rgbw"] = false; leds["wv"] = 0; leds["cct"] = 0;
+            JsonArray sl = leds["seglc"].to<JsonArray>(); sl.add(1);
+            JsonObject wf = info["wifi"].to<JsonObject>();
+            wf["bssid"] = WiFi.BSSIDstr(); wf["rssi"] = WiFi.RSSI();
+            wf["signal"] = WiFi.RSSI(); wf["channel"] = WiFi.channel();
+            JsonObject fs = info["fs"].to<JsonObject>();
+            fs["u"] = 0; fs["t"] = 1024; fs["pmt"] = 0;
+            JsonArray maps = info["maps"].to<JsonArray>();
+            maps.createNestedObject()["id"] = 0;
+        };
 
-        JsonObject fs    = doc["fs"].to<JsonObject>();
-        fs["u"]          = 0;
-        fs["t"]          = 1024;
-        fs["pmt"]        = 0;
-
-        doc["ndc"]       = 0;
-
+        StaticJsonDocument<2048> doc;
         String out;
-        serializeJson(doc, out);
-        _http.send(200, "application/json", out);
-    });
 
-    // WLED-compatible /json/state — GET + POST
-    auto sendState = [this](bool isPost) {
-        uint16_t n = _engine->virtualCount();
-        StaticJsonDocument<512> doc;
-
-        if (isPost) {
-            // Hyperion POSTs config to /json/state; acknowledge with success + state
-            doc["success"]  = true;
+        // /json/info
+        if (uri == "/json/info" || uri == "/json/info/") {
+            getInfo(doc.to<JsonObject>());
         }
+        // /json/state
+        else if (uri == "/json/state" || uri == "/json/state/") {
+            getState(doc.to<JsonObject>());
+            if (method == HTTP_POST) doc["success"] = true;
+        }
+        // /json or /json/ (si: state+info — what Hyperion probes)
+        else if (uri == "/json" || uri == "/json/") {
+            if (method == HTTP_POST) { getState(doc.to<JsonObject>()); doc["success"] = true; }
+            else {
+                getState(doc["state"].to<JsonObject>());
+                getInfo(doc["info"].to<JsonObject>());
+                JsonArray fx = doc["effects"].to<JsonArray>();
+                for (const auto* e : {"Solid","Blink","Breathe","Wipe","Rainbow","Scan","Fade","Theater",
+                    "Running","Saw","Twinkle","Sparkle","Strobe","Fire","Fireworks","Aurora","Flow","Pacifica"})
+                    fx.add(e);
+            }
+        }
+        // /json/si (explicit state+info)
+        else if (uri == "/json/si" || uri == "/json/si/") {
+            getState(doc["state"].to<JsonObject>());
+            getInfo(doc["info"].to<JsonObject>());
+        }
+        else { _http.send(404, "text/plain", "Not found"); return; }
 
-        doc["on"]        = true;
-        doc["bri"]       = 255;
-        doc["transition"] = 7;
-        doc["ps"]        = -1;
-        doc["pl"]        = -1;
-        JsonObject nl    = doc["nl"].to<JsonObject>();
-        nl["on"]         = false;
-        nl["dur"]        = 60;
-        nl["mode"]       = 1;
-        nl["tbri"]       = 0;
-        nl["rem"]        = -1;
-
-        JsonObject udpn  = doc["udpn"].to<JsonObject>();
-        udpn["send"]     = false;
-        udpn["recv"]     = true;
-        udpn["sgrp"]     = 1;
-        udpn["rgrp"]     = 1;
-        doc["lor"]       = 0;
-        doc["mainseg"]   = 0;
-
-        JsonArray segs   = doc["seg"].to<JsonArray>();
-        JsonObject seg   = segs.createNestedObject();
-        seg["id"]        = 0;
-        seg["start"]     = 0;
-        seg["stop"]      = n;
-        seg["len"]       = n;
-        seg["grp"]       = 1;
-        seg["spc"]       = 0;
-        seg["of"]        = 0;
-        seg["on"]        = true;
-        seg["frz"]       = false;
-        seg["bri"]       = 255;
-        seg["cct"]       = 127;
-        seg["fx"]        = 0;
-        seg["sx"]        = 128;
-        seg["ix"]        = 128;
-        seg["sel"]       = true;
-        seg["rev"]       = false;
-        seg["mi"]        = false;
-
-        String out;
         serializeJson(doc, out);
         _http.send(200, "application/json", out);
     };
 
-    // GET /json/state → return state
-    _http.on("/json/state", HTTP_GET, [sendState]() { sendState(false); });
-
-    // POST /json/state → Hyperion configures device, return state with success
-    _http.on("/json/state", HTTP_POST, [sendState]() { sendState(true); });
-
-    // POST /json → Hyperion config entry point, also expects full state back
-    _http.on("/json", HTTP_POST, [sendState]() { sendState(true); });
-
-    // Additional WLED endpoints Hyperion may probe
-    _http.on("/json/si", HTTP_POST, [sendState]() { sendState(true); });
-    _http.on("/json/cfg", HTTP_POST, [sendState]() { sendState(true); });
-    _http.on("/json", HTTP_GET, [sendState]() { sendState(false); });
+    _http.on("/json/info", HTTP_GET, handleJson);
+    _http.on("/json/state", HTTP_GET, handleJson);
+    _http.on("/json/state", HTTP_POST, handleJson);
+    _http.on("/json", HTTP_GET, handleJson);
+    _http.on("/json/", HTTP_GET, handleJson);
+    _http.on("/json", HTTP_POST, handleJson);
+    _http.on("/json/", HTTP_POST, handleJson);
+    _http.on("/json/si", HTTP_POST, handleJson);
 
     // Serve other assets; look for .gz variant first.
-    _http.onNotFound([this]() {
+    _http.onNotFound([this, handleJson]() {
+        // Catch any /json* path that registered routes missed (trailing slashes, etc)
+        String uri = _http.uri();
+        if (uri.startsWith("/json")) {
+            handleJson();
+            return;
+        }
         String path = _http.uri();
         String gzPath = path + ".gz";
         if (LittleFS.exists(gzPath)) {
