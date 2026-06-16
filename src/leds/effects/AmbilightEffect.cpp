@@ -22,19 +22,28 @@ public:
         _mapping[sizeof(_mapping) - 1] = '\0';
     }
 
-    void reset() override { _lastPoll = 0; _ambStatus = AMB_IDLE; _prevStatus = 255; }
+    void reset() override { _lastPoll = 0; _ambStatus = AMB_IDLE; _prevStatus = 255; _newData = false; }
 
-    void tick(CRGB* leds, uint16_t count, const EffectParams& p) override {
+    // Non-blocking poll — call from EffectsEngine, no tick gate
+    void ambPoll() {
+        if (_tvIp[0] == '\0') return;
         uint32_t now = millis();
-        if (_tvIp[0] != '\0' && now - _lastPoll >= _pollMs) {
-            _lastPoll = now;
-            fetchAndParse();
+        if (now - _lastPoll < _pollMs) return;
+        _lastPoll = now;
+        fetchAndParse();
+    }
+
+    // Only flush to LEDs when new zones arrived
+    void tick(CRGB* leds, uint16_t count, const EffectParams&) override {
+        if (_newData) {
+            _newData = false;
+            applyZones(leds, count);
         }
-        applyZones(leds, count);
     }
 
     enum { AMB_IDLE = 0, AMB_POLLING = 1, AMB_ERROR = 2 };
     uint8_t getStatus() const { return _ambStatus; }
+    bool    hasNewData() const { return _newData; }
 
 private:
     char     _tvIp[16]    = "";
@@ -42,7 +51,8 @@ private:
     char     _mapping[16] = "right";
     uint32_t _lastPoll    = 0;
     uint8_t  _ambStatus   = AMB_IDLE;
-    uint8_t  _prevStatus  = 255;  // force first print
+    uint8_t  _prevStatus  = 255;
+    bool     _newData     = false;
 
     static const uint8_t MAX_ZONES = 10;
     AmbZone  _zones[MAX_ZONES] = {};
@@ -62,7 +72,6 @@ private:
             _ambStatus = AMB_ERROR; return;
         }
 
-        // Use stream parsing to save RAM
         StaticJsonDocument<2048> doc;
         DeserializationError err = deserializeJson(doc, http.getStream());
         http.end();
@@ -71,7 +80,7 @@ private:
             _ambStatus = AMB_ERROR; return;
         }
 
-        _ambStatus = AMB_POLLING;
+        _ambStatus = AMB_POLLING; _newData = true;
 
         if (strcmp(_mapping, "average") == 0) {
             uint32_t r = 0, g = 0, b = 0;
@@ -91,7 +100,7 @@ private:
                 _zones[0] = { (uint8_t)(r / n), (uint8_t)(g / n), (uint8_t)(b / n) };
                 _zoneCount = 1;
             }
-            if (_prevStatus != AMB_POLLING) { Serial.printf("[ambilight] OK! avg zones=%u → (r%u,g%u,b%u)\n", _zoneCount, _zones[0].r, _zones[0].g, _zones[0].b); _prevStatus = AMB_POLLING; }
+            if (_prevStatus != AMB_POLLING) { Serial.printf("[ambilight] OK! avg zones=%u\n", _zoneCount); _prevStatus = AMB_POLLING; }
             return;
         }
 
@@ -112,14 +121,15 @@ private:
         if (_zoneCount == 0) { fill_solid(leds, count, CRGB::Black); return; }
         if (_zoneCount == 1) { fill_solid(leds, count, CRGB(_zones[0].r, _zones[0].g, _zones[0].b)); return; }
 
+        // Integer interpolation — fixed-point 8:8, no float math
         for (uint16_t i = 0; i < count; i++) {
-            float t = (float)i / (float)(count - 1) * (float)(_zoneCount - 1);
-            uint8_t z0 = (uint8_t)t;
+            uint32_t pos = (uint32_t)i * (_zoneCount - 1) * 256 / (count - 1);
+            uint8_t z0 = (uint8_t)(pos >> 8);
             uint8_t z1 = (z0 + 1 < _zoneCount) ? z0 + 1 : z0;
-            float frac = t - (float)z0;
-            leds[i].r = (uint8_t)(_zones[z0].r + frac * (float)(_zones[z1].r - _zones[z0].r));
-            leds[i].g = (uint8_t)(_zones[z0].g + frac * (float)(_zones[z1].g - _zones[z0].g));
-            leds[i].b = (uint8_t)(_zones[z0].b + frac * (float)(_zones[z1].b - _zones[z0].b));
+            uint16_t frac = (uint16_t)(pos & 0xFF);
+            leds[i].r = _zones[z0].r + (uint16_t)(_zones[z1].r - _zones[z0].r) * frac / 256;
+            leds[i].g = _zones[z0].g + (uint16_t)(_zones[z1].g - _zones[z0].g) * frac / 256;
+            leds[i].b = _zones[z0].b + (uint16_t)(_zones[z1].b - _zones[z0].b) * frac / 256;
         }
     }
 };

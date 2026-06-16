@@ -272,13 +272,24 @@ void EffectsEngine::tick() {
 
     if (!_active) return;
 
-    // If hyperion effect is active, skip normal tick — flushHyperion()
-    // already wrote to _leds and called FastLED.show() this iteration
-    if (_active && strcmp(_active->id(), "hyperion") == 0) return;
+    // Hyperion and Ambilight use per-iteration flush (zero latency) —
+    // skip the regular tick cycle which would re-show stale data
+    if (_active && (strcmp(_active->id(), "hyperion") == 0 || strcmp(_active->id(), "ambilight") == 0)) return;
 
     _active->tick(_vbuf, _virtCount, _params);
     flushVirtualToPhysical();
     FastLED.show();
+}
+
+void EffectsEngine::ambilightPoll() {
+    if (!_active || strcmp(_active->id(), "ambilight") != 0) return;
+    _eAmbilight.ambPoll();
+    // Only flush when new zone data was fetched
+    if (_eAmbilight.hasNewData()) {
+        _active->tick(_vbuf, _virtCount, _params);
+        flushVirtualToPhysical();
+        FastLED.show();
+    }
 }
 
 void EffectsEngine::flushHyperion() {
