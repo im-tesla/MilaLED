@@ -4,6 +4,8 @@
 #include "PixelMapper.h"
 #include "../config/ConfigStore.h"
 
+void hyperionLoop();
+
 // forward-declare all effect types
 class SolidEffect;
 class ColorTempEffect;

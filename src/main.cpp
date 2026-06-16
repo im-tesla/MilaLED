@@ -69,6 +69,7 @@ void setup() {
 }
 
 void loop() {
+    hyperionLoop();          // always-on UDP listener (port 21324)
     network.loop();          // MDNS.update()
     webServer.loop();        // HTTP + WebSocket handlers
     engine.tick();           // LED frame update (20ms throttled)

@@ -1,4 +1,23 @@
 #include "EffectsEngine.h"
+
+// ── Hyperion UDP globals (always-on listener, shared with HyperionEffect) ──
+#include <WiFiUdp.h>
+static WiFiUDP _hyUdp;
+static bool    _hyReady = false;
+uint8_t        _hBuf[1536];
+uint16_t       _hLen  = 0;
+uint32_t       _hLast = 0;
+
+void hyperionLoop() {
+    if (!_hyReady) { _hyUdp.begin(21324); _hyReady = true; }
+    uint16_t sz = _hyUdp.parsePacket();
+    if (sz < 4 || sz > (uint16_t)sizeof(_hBuf)) return;
+    _hLen = sz;
+    _hyUdp.read(_hBuf, sz);
+    _hLast = millis();
+}
+
+#define EFFECTS_ENGINE
 #include "effects/SolidEffect.cpp"
 #include "effects/ColorTempEffect.cpp"
 #include "effects/RainbowEffect.cpp"
