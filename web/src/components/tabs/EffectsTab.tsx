@@ -22,10 +22,15 @@ export function EffectsTab({ state, update }: Props) {
   const { t } = useTranslation()
   const activeId = EFFECT_IDS.includes(state.effect as EffectId) ? state.effect as EffectId : null
 
-  // Effects that don't use speed / intensity sliders
-  const noSliders  = activeId === 'ambilight' || activeId === 'hyperion'
-  const noSpeed    = noSliders
-  const noIntensity = noSliders
+  // Per-effect slider visibility based on what each tick() actually reads.
+  // solid → neither. colortemp → intensity only (color temperature).
+  // comet/cylon/theater/fire/meteor/sparkle → both.
+  // breathing/lava/ocean/perlinflow/rainbow/running/strobe/twinkle → speed only.
+  // ambilight/hyperion → neither (externally driven).
+  const hideSpeed     = ['solid','ambilight','hyperion'].includes(activeId || '')
+  const hideIntensity = ['solid','breathing','lava','ocean','perlinflow',
+                          'rainbow','running','strobe','twinkle',
+                          'ambilight','hyperion'].includes(activeId || '')
 
   return (
     <div className="space-y-4">
@@ -39,14 +44,14 @@ export function EffectsTab({ state, update }: Props) {
               {t('effects.active')}
             </Badge>
           </div>
-          {!noSpeed && (
+          {!hideSpeed && (
             <ParamSlider
               label={t('effects.speed')}
               value={state.speed}
               onChange={v => update({ speed: v })}
             />
           )}
-          {!noIntensity && (
+          {!hideIntensity && (
             <ParamSlider
               label={t('effects.intensity')}
               value={state.intensity}
