@@ -9,7 +9,7 @@ uint16_t       _hLen  = 0;
 uint32_t       _hLast = 0;
 
 void hyperionLoop() {
-    if (!_hyReady) { _hyUdp.begin(21324); _hyReady = true; }
+    if (!_hyReady) { _hyUdp.begin(19446); _hyReady = true; }  // WLED udpRgbPort (Hyperion streams here)
     uint16_t sz = _hyUdp.parsePacket();
     if (sz < 4 || sz > (uint16_t)sizeof(_hBuf)) return;
     _hLen = sz;

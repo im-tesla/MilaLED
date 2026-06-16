@@ -14,10 +14,8 @@ public:
     void reset() override {}
 
     void tick(CRGB* leds, uint16_t count, const EffectParams&) override {
-        // _hBuf, _hLen, _hLast defined at top of EffectsEngine.cpp (same TU)
-
         uint32_t now = millis();
-        if (_hLen < 4) return;
+        if (_hLen < 3) return;
 
         if (now - _hLast > 2500) {
             fill_solid(leds, count, CRGB::Black);
@@ -27,40 +25,32 @@ public:
 
         const uint8_t* p = _hBuf;
         uint16_t len = _hLen;
-        uint8_t type = p[0];
 
-        // DRGB: [2] [timeout] [R] [G] [B]... (Hyperion WLED controller)
-        if (type == 2 && len >= 3) {
-            uint16_t n = (len - 2) / 3;
-            uint16_t max = count < n ? count : n;
-            for (uint16_t i = 0; i < max; i++) {
-                uint16_t off = 2 + i * 3;
-                leds[i].r = p[off];
-                leds[i].g = p[off+1];
-                leds[i].b = p[off+2];
-            }
+        // Key insight: raw RGB has no header → packet length is evenly
+        // divisible by 3. DRGB/WARLS have 1-2 byte headers → never % 3 == 0.
+        // This avoids misinterpreting the first R value as a protocol byte.
+        uint16_t off = 0;
+        if (len % 3 == 0) {
+            // Raw RGB (Hyperion identify + stream default)
+            off = 0;
+        } else if (p[0] == 2) {
+            // DRGB: [2][timeout][R][G][B]...
+            off = 2;
+        } else if (p[0] == 1) {
+            // WARLS: [1][timeout][R][G][B]...
+            off = 1;
+        } else {
+            // Unknown format — try raw
+            off = 0;
         }
-        // WARLS: [1] [timeout] [R] [G] [B]...
-        else if (type == 1 && len >= 2) {
-            uint16_t n = (len - 1) / 3;
-            uint16_t max = count < n ? count : n;
-            for (uint16_t i = 0; i < max; i++) {
-                uint16_t off = 1 + i * 3;
-                leds[i].r = p[off];
-                leds[i].g = p[off+1];
-                leds[i].b = p[off+2];
-            }
-        }
-        // Raw RGB with no header
-        else if (len >= 3) {
-            uint16_t n = len / 3;
-            uint16_t max = count < n ? count : n;
-            for (uint16_t i = 0; i < max; i++) {
-                uint16_t off = i * 3;
-                leds[i].r = p[off];
-                leds[i].g = p[off+1];
-                leds[i].b = p[off+2];
-            }
+
+        uint16_t n = (len - off) / 3;
+        uint16_t max = count < n ? count : n;
+        for (uint16_t i = 0; i < max; i++) {
+            uint16_t pos = off + i * 3;
+            leds[i].r = p[pos];
+            leds[i].g = p[pos+1];
+            leds[i].b = p[pos+2];
         }
     }
 };
