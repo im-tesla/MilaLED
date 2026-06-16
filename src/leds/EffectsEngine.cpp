@@ -245,6 +245,13 @@ void EffectsEngine::tick() {
 
     _active->tick(_vbuf, _virtCount, _params);
     flushVirtualToPhysical();
+
+    // Mirror main strip to all aux GPIOs so effects show on every pin
+    uint16_t copyN = (_physCount < AUX_N) ? _physCount : AUX_N;
+    for (uint8_t i = 0; i < _auxCount; i++) {
+        memcpy(_auxBuf + i * AUX_N, _leds, copyN * sizeof(CRGB));
+    }
+
     FastLED.show();
 }
 
