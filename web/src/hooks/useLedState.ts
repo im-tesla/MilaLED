@@ -4,11 +4,8 @@ import { useWebSocket } from './useWebSocket'
 export interface SegmentData {
   count: number
   half: boolean
-  effect?: number     // 0-17
-  speed?: number
-  intensity?: number
-  virtCount?: number
-  start?: number
+  virtCount?: number  // computed by firmware, sent in state
+  start?: number      // physical offset
 }
 
 export interface LedState {

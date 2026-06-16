@@ -29,12 +29,9 @@ bool ConfigStore::load(Config& cfg) {
         JsonArray arr = doc["segments"];
         for (uint8_t i = 0; i < MAX_SEGMENTS; i++) {
             if (i < arr.size()) {
-                cfg.segments[i].count   = arr[i]["count"] | 0;
-                cfg.segments[i].half    = arr[i].containsKey("half")
+                cfg.segments[i].count = arr[i]["count"] | 0;
+                cfg.segments[i].half  = arr[i].containsKey("half")
                     ? arr[i]["half"].as<bool>() : false;
-                cfg.segments[i].effect  = arr[i]["effect"]  | (uint8_t)0;
-                cfg.segments[i].speed   = arr[i]["speed"]   | (uint8_t)128;
-                cfg.segments[i].intensity=arr[i]["intensity"]| (uint8_t)128;
             } else {
                 cfg.segments[i] = SegmentCfg();
             }
@@ -76,11 +73,8 @@ bool ConfigStore::save(const Config& cfg) {
     JsonArray arr = doc["segments"].to<JsonArray>();
     for (uint8_t i = 0; i < MAX_SEGMENTS; i++) {
         JsonObject seg = arr.createNestedObject();
-        seg["count"]     = cfg.segments[i].count;
-        seg["half"]      = cfg.segments[i].half;
-        seg["effect"]    = cfg.segments[i].effect;
-        seg["speed"]     = cfg.segments[i].speed;
-        seg["intensity"] = cfg.segments[i].intensity;
+        seg["count"] = cfg.segments[i].count;
+        seg["half"]  = cfg.segments[i].half;
     }
 
     doc["dataPin"]        = cfg.dataPin;

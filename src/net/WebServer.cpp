@@ -226,9 +226,6 @@ void MilaWebServer::begin(Config* cfg, ConfigStore* store, EffectsEngine* engine
                     _cfg->segments[i].count = arr[i]["count"] | 0;
                     _cfg->segments[i].half  = arr[i].containsKey("half")
                         ? arr[i]["half"].as<bool>() : false;
-                    _cfg->segments[i].effect   = arr[i]["effect"]   | (uint8_t)0;
-                    _cfg->segments[i].speed    = arr[i]["speed"]    | (uint8_t)128;
-                    _cfg->segments[i].intensity = arr[i]["intensity"]| (uint8_t)128;
                 } else {
                     _cfg->segments[i] = SegmentCfg();
                 }
@@ -417,9 +414,6 @@ String MilaWebServer::buildStateJson() {
         JsonObject seg = segs.createNestedObject();
         seg["count"]     = _cfg->segments[i].count;
         seg["half"]      = _cfg->segments[i].half;
-        seg["effect"]    = _cfg->segments[i].effect;
-        seg["speed"]     = _cfg->segments[i].speed;
-        seg["intensity"] = _cfg->segments[i].intensity;
         seg["start"]     = physOff;
         seg["virtCount"] = _cfg->segments[i].half
             ? (_cfg->segments[i].count / 2) : _cfg->segments[i].count;
