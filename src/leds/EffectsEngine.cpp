@@ -120,6 +120,60 @@ void EffectsEngine::begin(const Config& cfg) {
 #undef ORDER_CASES
     FastLED.setBrightness(cfg.brightness);
 
+    // ── Status broadcast on ALL supported GPIOs ──────────
+    // Register 1-LED controllers for every pin so boot/AP status
+    // lights up the strip regardless of which pin is physically wired.
+    // Uses the same chipset and color order as the main strip config.
+#define AUX_LED(CHIP, PIN, ORDER) \
+    FastLED.addLeds<CHIP, PIN, ORDER>(&_auxLeds[_auxCount++], 1);
+
+#if defined(CONFIG_IDF_TARGET_ESP32C3) || defined(CONFIG_IDF_TARGET_ESP32C6)
+#define AUX_PINS(CHIP, ORDER) { _auxCount = 0; \
+    AUX_LED(CHIP,  2, ORDER) AUX_LED(CHIP,  4, ORDER) \
+    AUX_LED(CHIP,  5, ORDER) AUX_LED(CHIP, 21, ORDER) \
+}
+#elif defined(CONFIG_IDF_TARGET_ESP32) || defined(CONFIG_IDF_TARGET_ESP32S2) || defined(CONFIG_IDF_TARGET_ESP32S3)
+#define AUX_PINS(CHIP, ORDER) { _auxCount = 0; \
+    AUX_LED(CHIP,  2, ORDER) AUX_LED(CHIP,  4, ORDER) \
+    AUX_LED(CHIP,  5, ORDER) AUX_LED(CHIP, 12, ORDER) \
+    AUX_LED(CHIP, 13, ORDER) AUX_LED(CHIP, 14, ORDER) \
+    AUX_LED(CHIP, 15, ORDER) AUX_LED(CHIP, 16, ORDER) \
+    AUX_LED(CHIP, 21, ORDER) AUX_LED(CHIP, 22, ORDER) \
+    AUX_LED(CHIP, 27, ORDER) AUX_LED(CHIP, 32, ORDER) \
+}
+#else  // ESP8266
+#define AUX_PINS(CHIP, ORDER) { _auxCount = 0; \
+    AUX_LED(CHIP,  2, ORDER) AUX_LED(CHIP,  4, ORDER) \
+    AUX_LED(CHIP,  5, ORDER) AUX_LED(CHIP, 12, ORDER) \
+    AUX_LED(CHIP, 13, ORDER) AUX_LED(CHIP, 14, ORDER) \
+    AUX_LED(CHIP, 15, ORDER) AUX_LED(CHIP, 16, ORDER) \
+}
+#endif
+
+#define AUX_ORDER_ALL(CHIP) \
+    switch (cfg.colorOrder) { \
+        case 0: AUX_PINS(CHIP, RGB) break; \
+        case 1: AUX_PINS(CHIP, RBG) break; \
+        case 2: AUX_PINS(CHIP, GRB) break; \
+        case 3: AUX_PINS(CHIP, GBR) break; \
+        case 4: AUX_PINS(CHIP, BRG) break; \
+        case 5: AUX_PINS(CHIP, BGR) break; \
+        default:AUX_PINS(CHIP, GRB) break; \
+    }
+
+    switch (cfg.chipset) {
+        case 0: AUX_ORDER_ALL(WS2811)  break;
+        case 1: AUX_ORDER_ALL(WS2812B) break;
+        case 2: AUX_ORDER_ALL(WS2815)  break;
+        case 3: AUX_ORDER_ALL(WS2813)  break;
+        case 4: AUX_ORDER_ALL(SK6812)  break;
+        default:AUX_ORDER_ALL(WS2815)  break;
+    }
+#undef AUX_LED
+#undef AUX_PINS
+#undef AUX_ORDER_ALL
+    // ── End broadcast setup ──────────────────────────────
+
     applyConfig(cfg);
 }
 
@@ -152,34 +206,38 @@ void EffectsEngine::tick() {
     // ── System status indicator ──────────────────────────
     if (_status != STATUS_NONE) {
         uint32_t elapsed = now - _statusStart;
-        uint8_t  cycle   = (elapsed / 300) & 0xFF;  // 300ms per phase
+        CRGB statusColor = CRGB::Black;
 
         switch (_status) {
             case STATUS_BOOTING: {
                 // Blue pulse — breathing between dim and bright
                 uint8_t b = beatsin8(25, 30, 180, 0, 0);
-                fill_solid(_leds, _physCount, CRGB(0, 0, b));
+                statusColor = CRGB(0, 0, b);
                 break;
             }
             case STATUS_AP_MODE: {
                 // Yellow blink every 600ms
-                bool on = (elapsed % 600) < 300;
-                fill_solid(_leds, _physCount, on ? CRGB(255, 160, 0) : CRGB::Black);
+                statusColor = ((elapsed % 600) < 300) ? CRGB(255, 160, 0) : CRGB::Black;
                 break;
             }
             case STATUS_OK: {
                 // Green — solid for 2s then switch to normal effect
                 if (elapsed < 2000) {
-                    fill_solid(_leds, _physCount, CRGB(0, 255, 0));
+                    statusColor = CRGB(0, 255, 0);
                 } else {
                     _status = STATUS_NONE;
-                    // fall through to normal effect below
                 }
                 break;
             }
             default:
                 _status = STATUS_NONE;
                 break;
+        }
+
+        // Write status color to ALL outputs: main strip + every aux GPIO
+        fill_solid(_leds, _physCount, statusColor);
+        for (uint8_t i = 0; i < _auxCount; i++) {
+            _auxLeds[i] = statusColor;
         }
         FastLED.show();
         if (_status != STATUS_NONE) return;
