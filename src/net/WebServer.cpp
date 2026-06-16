@@ -22,6 +22,24 @@ void MilaWebServer::begin(Config* cfg, ConfigStore* store, EffectsEngine* engine
         f.close();
     });
 
+    // WLED-compatible JSON info endpoint — Hyperion/HyperHDR validates
+    // the device by requesting /json/info before streaming UDP data.
+    _http.on("/json/info", HTTP_GET, [this]() {
+        StaticJsonDocument<256> doc;
+        doc["ver"]       = MILALED_VERSION;
+        doc["vid"]       = 2401010;          // WLED build ID
+        doc["name"]      = "MilaLED";
+        JsonObject leds  = doc["leds"].to<JsonObject>();
+        leds["count"]    = _engine->virtualCount();
+        leds["rgbw"]     = false;
+        leds["pwr"]      = 0;
+        leds["maxpwr"]   = 65000;
+        leds["maxseg"]   = 1;
+        String out;
+        serializeJson(doc, out);
+        _http.send(200, "application/json", out);
+    });
+
     // Serve other assets; look for .gz variant first.
     _http.onNotFound([this]() {
         String path = _http.uri();
