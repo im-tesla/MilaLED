@@ -121,27 +121,27 @@ void EffectsEngine::begin(const Config& cfg) {
     FastLED.setBrightness(cfg.brightness);
 
     // ── Status broadcast on extra GPIOs ──────────────────
-    // Register 100-LED controllers on a handful of GPIOs so the boot/AP
-    // status colour lights the whole strip even if the saved dataPin differs.
+    // Register auxiliary controllers that point at the same _leds buffer
+    // so every output pin drives the full strip identically.
 #define AUX_LED(CHIP, PIN, ORDER) \
-    FastLED.addLeds<CHIP, PIN, ORDER>(_auxBuf + _auxCount * AUX_N, AUX_N); \
-    _auxCount++;
+    FastLED.addLeds<CHIP, PIN, ORDER>(_leds, _physCount); \
+    _auxPinCount++;
 
 #if defined(CONFIG_IDF_TARGET_ESP32) || defined(CONFIG_IDF_TARGET_ESP32S2) || defined(CONFIG_IDF_TARGET_ESP32S3)
-#define AUX_PINS(CHIP, ORDER) { _auxCount = 0; \
+#define AUX_PINS(CHIP, ORDER) { _auxPinCount = 0; \
     AUX_LED(CHIP,  2, ORDER) AUX_LED(CHIP,  4, ORDER) \
     AUX_LED(CHIP,  5, ORDER) AUX_LED(CHIP, 12, ORDER) \
     AUX_LED(CHIP, 21, ORDER) AUX_LED(CHIP, 32, ORDER) \
 }
 #elif defined(CONFIG_IDF_TARGET_ESP32C3) || defined(CONFIG_IDF_TARGET_ESP32C6)
-#define AUX_PINS(CHIP, ORDER) { _auxCount = 0; \
+#define AUX_PINS(CHIP, ORDER) { _auxPinCount = 0; \
     AUX_LED(CHIP, 21, ORDER) \
     AUX_LED(CHIP,  2, ORDER) \
     AUX_LED(CHIP,  4, ORDER) \
     AUX_LED(CHIP,  5, ORDER) \
 }
 #else  // ESP8266
-#define AUX_PINS(CHIP, ORDER) { _auxCount = 0; \
+#define AUX_PINS(CHIP, ORDER) { _auxPinCount = 0; \
     AUX_LED(CHIP,  2, ORDER) AUX_LED(CHIP,  4, ORDER) \
     AUX_LED(CHIP,  5, ORDER) \
 }
@@ -231,11 +231,8 @@ void EffectsEngine::tick() {
                 break;
         }
 
-        // Write status color to main strip + all aux GPIOs
+        // Write status color — all controllers share _leds, so one fill_solid hits every GPIO
         fill_solid(_leds, _physCount, statusColor);
-        for (uint8_t i = 0; i < _auxCount; i++) {
-            fill_solid(_auxBuf + i * AUX_N, AUX_N, statusColor);
-        }
         FastLED.show();
         if (_status != STATUS_NONE) return;
     }
@@ -245,13 +242,6 @@ void EffectsEngine::tick() {
 
     _active->tick(_vbuf, _virtCount, _params);
     flushVirtualToPhysical();
-
-    // Mirror main strip to all aux GPIOs so effects show on every pin
-    uint16_t copyN = (_physCount < AUX_N) ? _physCount : AUX_N;
-    for (uint8_t i = 0; i < _auxCount; i++) {
-        memcpy(_auxBuf + i * AUX_N, _leds, copyN * sizeof(CRGB));
-    }
-
     FastLED.show();
 }
 

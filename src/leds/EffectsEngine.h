@@ -47,11 +47,10 @@ private:
     uint16_t     _physCount = 0;
     uint16_t     _virtCount = 0;
 
-    // Auxiliary buffer for status broadcast — 100 LEDs per GPIO pin
-    static const uint8_t  MAX_AUX  = 4;
-    static const uint16_t AUX_N    = 100;
-    CRGB          _auxBuf[MAX_AUX * AUX_N] = {};
-    uint8_t       _auxCount = 0;
+    // Auxiliary controllers mirror the main LED buffer to extra GPIOs.
+    // They point directly at _leds so there's no arbitrary LED count limit.
+    // C3 gets 1 aux (GPIO21), ESP32 gets 4, ESP8266 gets 3.
+    uint8_t  _auxPinCount = 0;
 
     EffectBase*  _active    = nullptr;
     EffectParams _params;
