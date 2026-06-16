@@ -23,10 +23,34 @@ bool ConfigStore::load(Config& cfg) {
     cfg.colorPrimary   = doc["colorPrimary"]   | cfg.colorPrimary;
     cfg.colorSecondary = doc["colorSecondary"] | cfg.colorSecondary;
     strlcpy(cfg.palette, doc["palette"] | cfg.palette, sizeof(cfg.palette));
-    cfg.segALeds = doc["segALeds"] | cfg.segALeds;
-    cfg.segAHalf = doc.containsKey("segAHalf") ? doc["segAHalf"].as<bool>() : cfg.segAHalf;
-    cfg.segBLeds = doc["segBLeds"] | cfg.segBLeds;
-    cfg.segBHalf = doc.containsKey("segBHalf") ? doc["segBHalf"].as<bool>() : cfg.segBHalf;
+
+    // Load segment array — migrate old 2-segment format if present
+    if (doc.containsKey("segments")) {
+        JsonArray arr = doc["segments"];
+        for (uint8_t i = 0; i < MAX_SEGMENTS; i++) {
+            if (i < arr.size()) {
+                cfg.segments[i].count = arr[i]["count"] | 0;
+                cfg.segments[i].half  = arr[i].containsKey("half")
+                    ? arr[i]["half"].as<bool>() : false;
+            } else {
+                cfg.segments[i].count = 0;
+                cfg.segments[i].half  = false;
+            }
+        }
+    } else if (doc.containsKey("segALeds")) {
+        // Migration: old 2-segment format → new segments array
+        cfg.segments[0].count = doc["segALeds"] | 120;
+        cfg.segments[0].half  = doc.containsKey("segAHalf")
+            ? doc["segAHalf"].as<bool>() : true;
+        cfg.segments[1].count = doc["segBLeds"] | 58;
+        cfg.segments[1].half  = doc.containsKey("segBHalf")
+            ? doc["segBHalf"].as<bool>() : false;
+        cfg.segments[2] = {0, false};
+        cfg.segments[3] = {0, false};
+    } else {
+        // Fresh install — keep defaults
+    }
+
     cfg.dataPin   = doc["dataPin"]   | cfg.dataPin;
     cfg.colorOrder= doc["colorOrder"]| cfg.colorOrder;
     cfg.chipset   = doc["chipset"]   | cfg.chipset;
@@ -46,10 +70,14 @@ bool ConfigStore::save(const Config& cfg) {
     doc["colorPrimary"]   = cfg.colorPrimary;
     doc["colorSecondary"] = cfg.colorSecondary;
     doc["palette"]        = cfg.palette;
-    doc["segALeds"]       = cfg.segALeds;
-    doc["segAHalf"]       = cfg.segAHalf;
-    doc["segBLeds"]       = cfg.segBLeds;
-    doc["segBHalf"]       = cfg.segBHalf;
+
+    JsonArray arr = doc["segments"].to<JsonArray>();
+    for (uint8_t i = 0; i < MAX_SEGMENTS; i++) {
+        JsonObject seg = arr.createNestedObject();
+        seg["count"] = cfg.segments[i].count;
+        seg["half"]  = cfg.segments[i].half;
+    }
+
     doc["dataPin"]        = cfg.dataPin;
     doc["colorOrder"]     = cfg.colorOrder;
     doc["chipset"]        = cfg.chipset;

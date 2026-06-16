@@ -31,10 +31,8 @@
   "presets": { "save": "Zapisz stan", "load": "Wczytaj", "delete": "Usuń", "name": "Nazwa presetu" },
   "settings": {
     "strip": "Taśma",
-    "segA": "LED seg A",
-    "segB": "LED seg B",
-    "density": "Tryb seg A",
-    "densityB": "Tryb seg B",
+    "virtual": "Wirtualne LED",
+    "addSegment": "Dodaj segment",
     "half": "Połowa (co drugi)",
     "full": "Pełna",
     "dataPin": "Pin danych LED",

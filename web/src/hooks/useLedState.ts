@@ -1,6 +1,13 @@
 import { useState, useCallback } from 'react'
 import { useWebSocket } from './useWebSocket'
 
+export interface SegmentData {
+  count: number
+  half: boolean
+  virtCount?: number  // computed by firmware, sent in state
+  start?: number      // physical offset
+}
+
 export interface LedState {
   power: boolean
   brightness: number
@@ -13,10 +20,7 @@ export interface LedState {
   virtualLeds: number
   ip: string
   ssid: string
-  segALeds: number
-  segBLeds: number
-  segAHalf: boolean
-  segBHalf: boolean
+  segments: SegmentData[]
   dataPin: number
   colorOrder: number
   chipset: number
@@ -36,13 +40,15 @@ const DEFAULT: LedState = {
   colorPrimary: '#FF4500',
   colorSecondary: '#000080',
   palette: 'RainbowColors',
-  virtualLeds: 118,
+  virtualLeds: 120,
   ip: '',
   ssid: '',
-  segALeds: 120,
-  segBLeds: 58,
-  segAHalf: true,
-  segBHalf: false,
+  segments: [
+    { count: 120, half: false },
+    { count: 0, half: false },
+    { count: 0, half: false },
+    { count: 0, half: false },
+  ],
   dataPin: 2,
   colorOrder: 2,
   chipset: 2,

@@ -1,6 +1,15 @@
 #pragma once
 #include <Arduino.h>
 
+#define MAX_SEGMENTS 4
+
+struct SegmentCfg {
+    uint16_t count;
+    bool     half;
+    SegmentCfg() : count(0), half(false) {}
+    SegmentCfg(uint16_t c, bool h) : count(c), half(h) {}
+};
+
 struct Config {
     bool     power        = true;
     uint8_t  brightness   = 180;
@@ -11,10 +20,13 @@ struct Config {
     uint32_t colorSecondary = 0x000080;
     char     palette[32]  = "RainbowColors";
 
-    uint16_t segALeds     = 120;
-    bool     segAHalf     = true;
-    uint16_t segBLeds     = 58;
-    bool     segBHalf     = false;
+    SegmentCfg segments[MAX_SEGMENTS] = {
+        { 120, false },  // seg[0]: 120 LEDs, full density
+        { 0, false },    // seg[1-3]: inactive
+        { 0, false },
+        { 0, false },
+    };
+
     uint8_t  dataPin      = 2;
     uint8_t  colorOrder   = 2;   // 0=RGB, 1=RBG, 2=GRB, 3=GBR, 4=BRG, 5=BGR
     uint8_t  chipset      = 2;   // 0=WS2811, 1=WS2812B, 2=WS2815, 3=WS2813, 4=SK6812

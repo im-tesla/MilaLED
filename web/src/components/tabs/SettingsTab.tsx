@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { WifiHigh, MagnifyingGlass, ArrowCounterClockwise, Stop } from '@phosphor-icons/react'
+import { WifiHigh, MagnifyingGlass, ArrowCounterClockwise, Stop, Plus, Trash } from '@phosphor-icons/react'
 import { AmbilightStatus } from '@/components/shared/AmbilightStatus'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -11,7 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import type { LedState } from '@/hooks/useLedState'
+import type { LedState, SegmentData } from '@/hooks/useLedState'
 
 const ESP_PINS: { gpio: number; label: string }[] = [
   { gpio: 2,  label: 'GPIO2  (D4)' },
@@ -43,6 +43,8 @@ const COLOR_ORDERS = ['RGB', 'RBG', 'GRB', 'GBR', 'BRG', 'BGR']
 
 const CHIPSETS = ['WS2811', 'WS2812B', 'WS2815', 'WS2813', 'SK6812']
 
+const MAX_SEGMENTS = 4
+
 interface Props {
   state: LedState
   update: (p: Partial<LedState>) => void
@@ -53,11 +55,9 @@ interface Props {
 export function SettingsTab({ state, update, scanProgress, foundTvs }: Props) {
   const { t, i18n } = useTranslation()
 
-  // Local strip config — only applied on "Save & Reboot"
-  const [segALeds, setSegALeds] = useState(state.segALeds)
-  const [segBLeds, setSegBLeds] = useState(state.segBLeds)
-  const [segAHalf, setSegAHalf] = useState(state.segAHalf)
-  const [segBHalf, setSegBHalf] = useState(state.segBHalf)
+  const [segments, setSegments] = useState<SegmentData[]>(() =>
+    state.segments ?? [{ count: 120, half: false }]
+  )
   const [dataPin,  setDataPin]  = useState(state.dataPin)
   const [colorOrder, setColorOrder] = useState(state.colorOrder)
   const [chipset,   setChipset]   = useState(state.chipset)
@@ -65,31 +65,56 @@ export function SettingsTab({ state, update, scanProgress, foundTvs }: Props) {
   const [confirmWifi, setConfirmWifi] = useState(false)
   const [wifiResetting, setWifiResetting] = useState(false)
 
-  // Compute projected virtual LEDs locally so it updates as the user edits
-  const localVirt = Math.floor(segALeds / (segAHalf ? 2 : 1)) + Math.floor(segBLeds / (segBHalf ? 2 : 1))
-
-  // Sync local strip state when WebSocket pushes fresh state (e.g. after reconnect)
-  // Use a compound key so any strip field change triggers resync — more robust
-  // than individual dependency tracking.
+  // Sync from WebSocket on reconnect
   useEffect(() => {
-    setSegALeds(state.segALeds)
-    setSegBLeds(state.segBLeds)
-    setSegAHalf(state.segAHalf)
-    setSegBHalf(state.segBHalf)
+    if (state.segments) setSegments([...state.segments])
     setDataPin(state.dataPin)
     setColorOrder(state.colorOrder)
     setChipset(state.chipset)
-  }, [state.segALeds, state.segBLeds, state.segAHalf, state.segBHalf, state.dataPin, state.colorOrder, state.chipset])
+  }, [state.segments, state.dataPin, state.colorOrder, state.chipset])
+
+  const localVirt = segments.reduce(
+    (sum, s) => sum + Math.floor(s.count / (s.half ? 2 : 1)),
+    0
+  )
+
+  const localPhys = segments.reduce((sum, s) => sum + s.count, 0)
+
+  const setSegment = (idx: number, patch: Partial<SegmentData>) => {
+    setSegments(prev => prev.map((s, i) => i === idx ? { ...s, ...patch } : s))
+  }
+
+  const addSegment = () => {
+    setSegments(prev => {
+      const active = prev.filter(s => s.count > 0)
+      if (active.length >= MAX_SEGMENTS) return prev
+      return [...prev, { count: 10, half: false }]
+    })
+  }
+
+  const removeSegment = (idx: number) => {
+    setSegments(prev => {
+      const active = prev.filter(s => s.count > 0)
+      if (active.length <= 1) {
+        // Remove last segment — blank it out
+        return prev.map((s, i) => i === idx ? { count: 0, half: false } : s)
+      }
+      return prev.filter((_, i) => i !== idx)
+    })
+  }
 
   const saveStrip = async () => {
     setRebooting(true)
     await fetch('/api/strip', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ segALeds, segBLeds, segAHalf, segBHalf, dataPin, colorOrder, chipset }),
+      body: JSON.stringify({
+        segments: segments.filter(s => s.count >= 0).slice(0, MAX_SEGMENTS),
+        dataPin,
+        colorOrder,
+        chipset,
+      }),
     }).catch(() => {})
-    // ESP restarts — WebSocket will reconnect automatically.
-    // Reset rebooting state after a generous timeout in case the restart takes longer.
     setTimeout(() => setRebooting(false), 15000)
   }
 
@@ -104,8 +129,9 @@ export function SettingsTab({ state, update, scanProgress, foundTvs }: Props) {
   const resetWifi = async () => {
     setWifiResetting(true)
     await fetch('/api/wifi/reset', { method: 'POST' }).catch(() => {})
-    // ESP will restart into AP mode — connection lost
   }
+
+  const activeSegs = segments.filter(s => s.count > 0)
 
   return (
     <div className="space-y-5">
@@ -117,67 +143,75 @@ export function SettingsTab({ state, update, scanProgress, foundTvs }: Props) {
         </h3>
         <div className="rounded-xl bg-zinc-900 border border-zinc-800 p-3 space-y-3">
           <div className="flex items-center justify-between text-sm">
-            <span className="text-zinc-400">Virtual LEDs</span>
-            <span className="text-zinc-100 tabular-nums">{localVirt}</span>
+            <span className="text-zinc-400">{t('settings.virtual')}</span>
+            <span className="text-zinc-100 tabular-nums">
+              {localVirt} <span className="text-zinc-500 text-xs">/ {localPhys} phys</span>
+            </span>
           </div>
-          <div className="grid grid-cols-2 gap-2">
-            <div className="space-y-1">
-              <span className="text-xs text-zinc-500">{t('settings.segA')}</span>
-              <Input
-                type="number"
-                value={segALeds}
-                onChange={e => setSegALeds(Number(e.target.value))}
-                min={1} max={500}
-                className="bg-zinc-900 border-zinc-700 text-zinc-100 text-sm h-9"
-              />
-            </div>
-            <div className="space-y-1">
-              <span className="text-xs text-zinc-500">{t('settings.segB')}</span>
-              <Input
-                type="number"
-                value={segBLeds}
-                onChange={e => setSegBLeds(Number(e.target.value))}
-                min={0} max={500}
-                className="bg-zinc-900 border-zinc-700 text-zinc-100 text-sm h-9"
-              />
-            </div>
+
+          {/* Segment list */}
+          <div className="space-y-2">
+            {segments.map((seg, idx) => (
+              <div key={idx} className={`rounded-lg border p-2 space-y-1.5 ${
+                seg.count > 0 ? 'border-zinc-700/60 bg-zinc-800/50' : 'border-zinc-800 border-dashed'
+              }`}>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-zinc-500 w-12 shrink-0">Seg {idx + 1}</span>
+                  <Input
+                    type="number"
+                    value={seg.count}
+                    onChange={e => setSegment(idx, { count: Number(e.target.value) || 0 })}
+                    min={0} max={2000}
+                    className="bg-zinc-800 border-zinc-700 text-zinc-100 text-sm h-8 w-20 text-center"
+                  />
+                  <div className="flex gap-1 ml-auto">
+                    <button
+                      onClick={() => setSegment(idx, { half: false })}
+                      className={`px-2 py-1 rounded text-[10px] font-medium transition-colors ${
+                        !seg.half ? 'border-amber-400/60 text-amber-400 bg-amber-400/5 border' : 'text-zinc-500'
+                      }`}
+                    >
+                      {t('settings.full')}
+                    </button>
+                    <button
+                      onClick={() => setSegment(idx, { half: true })}
+                      className={`px-2 py-1 rounded text-[10px] font-medium transition-colors ${
+                        seg.half ? 'border-amber-400/60 text-amber-400 bg-amber-400/5 border' : 'text-zinc-500'
+                      }`}
+                    >
+                      {t('settings.half')}
+                    </button>
+                    {activeSegs.length > 1 && seg.count > 0 && (
+                      <button
+                        onClick={() => removeSegment(idx)}
+                        className="text-zinc-500 hover:text-red-400 transition-colors px-1"
+                      >
+                        <Trash size={12} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+                {seg.count > 0 && (
+                  <div className="text-[10px] text-zinc-500 ml-14">
+                    {seg.half
+                      ? `${Math.floor(seg.count / 2)} virtual (every other LED skipped)`
+                      : `${seg.count} virtual (1:1)`}
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
-          <div className="space-y-1">
-            <span className="text-xs text-zinc-500">{t('settings.density')}</span>
-            <div className="flex gap-2">
-              {[true, false].map(half => (
-                <button
-                  key={String(half)}
-                  onClick={() => setSegAHalf(half)}
-                  className={`flex-1 py-2 rounded-lg border text-xs font-medium transition-colors ${
-                    segAHalf === half
-                      ? 'border-amber-400/60 text-amber-400 bg-amber-400/5'
-                      : 'border-zinc-700 text-zinc-400 hover:border-zinc-600'
-                  }`}
-                >
-                  {half ? t('settings.half') : t('settings.full')}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="space-y-1">
-            <span className="text-xs text-zinc-500">{t('settings.densityB')}</span>
-            <div className="flex gap-2">
-              {[true, false].map(half => (
-                <button
-                  key={String(half)}
-                  onClick={() => setSegBHalf(half)}
-                  className={`flex-1 py-2 rounded-lg border text-xs font-medium transition-colors ${
-                    segBHalf === half
-                      ? 'border-amber-400/60 text-amber-400 bg-amber-400/5'
-                      : 'border-zinc-700 text-zinc-400 hover:border-zinc-600'
-                  }`}
-                >
-                  {half ? t('settings.half') : t('settings.full')}
-                </button>
-              ))}
-            </div>
-          </div>
+
+          {activeSegs.length < MAX_SEGMENTS && (
+            <button
+              onClick={addSegment}
+              className="w-full py-1.5 rounded-lg border border-dashed border-zinc-700 text-zinc-500 hover:text-amber-400 hover:border-amber-400/40 text-xs transition-colors flex items-center justify-center gap-1"
+            >
+              <Plus size={12} />
+              {t('settings.addSegment')}
+            </button>
+          )}
+
           <div className="space-y-1">
             <span className="text-xs text-zinc-500">{t('settings.dataPin')}</span>
             <div className="grid grid-cols-3 gap-1.5">

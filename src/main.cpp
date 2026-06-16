@@ -28,10 +28,11 @@ void setup() {
     Serial.println("[init]  loading config...");
     cfgStore.load(cfg);  // loads saved config or uses defaults
 
-    Serial.printf("[init]  segA:%u %s  segB:%u %s  pin:%u chip:%u order:%u\n",
-        cfg.segALeds, cfg.segAHalf ? "half" : "full",
-        cfg.segBLeds, cfg.segBHalf ? "half" : "full",
-        cfg.dataPin, cfg.chipset, cfg.colorOrder);
+    uint8_t activeSegs = 0;
+    for (uint8_t i = 0; i < MAX_SEGMENTS; i++)
+        if (cfg.segments[i].count > 0) activeSegs++;
+    Serial.printf("[init]  activeSegs:%u  virt:%u  phys:%u  pin:%u\n",
+        activeSegs, engine.virtualCount(), engine.physCount(), cfg.dataPin);
 
     Serial.println("[init]  starting FastLED...");
     engine.begin(cfg);   // allocates LED arrays, sets up FastLED

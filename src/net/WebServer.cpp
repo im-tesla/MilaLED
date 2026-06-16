@@ -213,15 +213,24 @@ void MilaWebServer::begin(Config* cfg, ConfigStore* store, EffectsEngine* engine
 
     // REST: strip config — saves and restarts so FastLED reinitialises
     _http.on("/api/strip", HTTP_POST, [this]() {
-        StaticJsonDocument<256> doc;  // 7 fields need ~170 bytes JSON
+        StaticJsonDocument<512> doc;
         if (deserializeJson(doc, _http.arg("plain"))) {
             _http.send(400, "application/json", "{\"error\":\"bad json\"}");
             return;
         }
-        if (doc.containsKey("segALeds"))  _cfg->segALeds  = doc["segALeds"];
-        if (doc.containsKey("segBLeds"))  _cfg->segBLeds  = doc["segBLeds"];
-        if (doc.containsKey("segAHalf"))  _cfg->segAHalf  = doc["segAHalf"].as<bool>();
-        if (doc.containsKey("segBHalf"))  _cfg->segBHalf  = doc["segBHalf"].as<bool>();
+        // Segment array
+        if (doc.containsKey("segments")) {
+            JsonArray arr = doc["segments"];
+            for (uint8_t i = 0; i < MAX_SEGMENTS; i++) {
+                if (i < arr.size()) {
+                    _cfg->segments[i].count = arr[i]["count"] | 0;
+                    _cfg->segments[i].half  = arr[i].containsKey("half")
+                        ? arr[i]["half"].as<bool>() : false;
+                } else {
+                    _cfg->segments[i] = {0, false};
+                }
+            }
+        }
         if (doc.containsKey("dataPin"))   _cfg->dataPin   = doc["dataPin"];
         if (doc.containsKey("colorOrder"))_cfg->colorOrder= doc["colorOrder"];
         if (doc.containsKey("chipset"))   _cfg->chipset   = doc["chipset"];
@@ -398,10 +407,18 @@ String MilaWebServer::buildStateJson() {
     doc["virtualLeds"]    = _engine->virtualCount();
     doc["ip"]             = WiFi.localIP().toString();
     doc["ssid"]           = WiFi.SSID();
-    doc["segALeds"]       = _cfg->segALeds;
-    doc["segBLeds"]       = _cfg->segBLeds;
-    doc["segAHalf"]       = _cfg->segAHalf;
-    doc["segBHalf"]       = _cfg->segBHalf;
+
+    JsonArray segs = doc["segments"].to<JsonArray>();
+    uint16_t physOff = 0;
+    for (uint8_t i = 0; i < MAX_SEGMENTS; i++) {
+        JsonObject seg = segs.createNestedObject();
+        seg["count"]  = _cfg->segments[i].count;
+        seg["half"]   = _cfg->segments[i].half;
+        seg["start"]  = physOff;
+        seg["virtCount"] = _cfg->segments[i].half
+            ? (_cfg->segments[i].count / 2) : _cfg->segments[i].count;
+        physOff += _cfg->segments[i].count;
+    }
     doc["dataPin"]        = _cfg->dataPin;
     doc["colorOrder"]     = _cfg->colorOrder;
     doc["chipset"]        = _cfg->chipset;

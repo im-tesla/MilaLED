@@ -31,10 +31,8 @@
   "presets": { "save": "Save current state", "load": "Load", "delete": "Delete", "name": "Preset name" },
   "settings": {
     "strip": "Strip",
-    "segA": "Seg A LEDs",
-    "segB": "Seg B LEDs",
-    "density": "Seg A mode",
-    "densityB": "Seg B mode",
+    "virtual": "Virtual LEDs",
+    "addSegment": "Add segment",
     "half": "Half (skip every other)",
     "full": "Full",
     "dataPin": "LED data pin",
