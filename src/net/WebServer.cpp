@@ -49,7 +49,15 @@ void MilaWebServer::begin(Config* cfg, ConfigStore* store, EffectsEngine* engine
         doc["fxcount"]   = 18;
         doc["palcount"]  = 8;
         doc["cpalcount"] = 0;
-        doc["maps"]      = serialized("[{\"id\":0}]");
+        doc["clock"]     = 160;
+#ifdef ESP32
+        doc["flash"]     = 4;
+#else
+        doc["flash"]     = 4;
+#endif
+        JsonArray maps  = doc["maps"].to<JsonArray>();
+        JsonObject map  = maps.createNestedObject();
+        map["id"]       = 0;
 
         JsonObject leds  = doc["leds"].to<JsonObject>();
         leds["count"]    = n;
@@ -58,7 +66,7 @@ void MilaWebServer::begin(Config* cfg, ConfigStore* store, EffectsEngine* engine
         leds["maxpwr"]   = 65000;
         leds["maxseg"]   = 1;
         JsonArray seglc  = leds["seglc"].to<JsonArray>();
-        seglc.add(n);
+        seglc.add(1);  // 1 = number of segments (LED count is in leds.count)
         leds["lc"]       = 1;
         leds["rgbw"]     = false;
         leds["wv"]       = 0;
@@ -82,10 +90,16 @@ void MilaWebServer::begin(Config* cfg, ConfigStore* store, EffectsEngine* engine
         _http.send(200, "application/json", out);
     });
 
-    // WLED-compatible state endpoint
-    auto sendState = [this]() {
+    // WLED-compatible /json/state — GET + POST
+    auto sendState = [this](bool isPost) {
         uint16_t n = _engine->virtualCount();
         StaticJsonDocument<512> doc;
+
+        if (isPost) {
+            // Hyperion POSTs config to /json/state; acknowledge with success + state
+            doc["success"]  = true;
+        }
+
         doc["on"]        = true;
         doc["bri"]       = 255;
         doc["transition"] = 7;
@@ -130,16 +144,20 @@ void MilaWebServer::begin(Config* cfg, ConfigStore* store, EffectsEngine* engine
         serializeJson(doc, out);
         _http.send(200, "application/json", out);
     };
-    _http.on("/json/state", HTTP_GET, sendState);
 
-    // Hyperion sends POST to /json and /json/state to configure the device.
-    // Just acknowledge with 200 OK — actual config is handled via WebSocket.
-    _http.on("/json/state", HTTP_POST, [this]() {
-        _http.send(200, "application/json", "{\"success\":true}");
-    });
-    _http.on("/json", HTTP_POST, [this]() {
-        _http.send(200, "application/json", "{\"success\":true}");
-    });
+    // GET /json/state → return state
+    _http.on("/json/state", HTTP_GET, [sendState]() { sendState(false); });
+
+    // POST /json/state → Hyperion configures device, return state with success
+    _http.on("/json/state", HTTP_POST, [sendState]() { sendState(true); });
+
+    // POST /json → Hyperion config entry point, also expects full state back
+    _http.on("/json", HTTP_POST, [sendState]() { sendState(true); });
+
+    // Additional WLED endpoints Hyperion may probe
+    _http.on("/json/si", HTTP_POST, [sendState]() { sendState(true); });
+    _http.on("/json/cfg", HTTP_POST, [sendState]() { sendState(true); });
+    _http.on("/json", HTTP_GET, [sendState]() { sendState(false); });
 
     // Serve other assets; look for .gz variant first.
     _http.onNotFound([this]() {
