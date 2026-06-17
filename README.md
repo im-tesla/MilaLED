@@ -29,7 +29,7 @@ ESP8266 / ESP32 Wi-Fi LED strip controller with a modern mobile-first web interf
 - **Philips Ambilight integration** — mirror your Philips TV's ambient lighting (zero-latency HTTP polling)
 - **Hyperion/HyperHDR support** — WLED-compatible UDP streaming (DDP + RAW, ports 4048 + 19446)
 - **Network scanner** — automatically discover Philips TVs on your LAN
-- **Two-segment strip support** — configurable LED counts with half-density skipping
+- **Multi-segment strip support** — up to 4 segments with configurable LED counts and half-density skipping
 - **Configurable color order** — RGB, GRB, BRG — match whatever your strip expects
 - **Configurable chipset** — WS2811, WS2812B, WS2815, WS2813, SK6812
 - **Presets** — save and recall your favorite setups
