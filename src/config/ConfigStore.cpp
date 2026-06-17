@@ -87,6 +87,7 @@ bool ConfigStore::save(const Config& cfg) {
     File f = LittleFS.open(CFG_PATH, "w");
     if (!f) return false;
     serializeJson(doc, f);
+    f.flush();          // ensure data reaches flash before ESP.restart()
     f.close();
     return true;
 }

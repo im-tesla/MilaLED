@@ -298,7 +298,7 @@ void MilaWebServer::loop() {
     }
 
     if (_pendingRestart) {
-        delay(200); // let HTTP response flush
+        delay(500); // let HTTP response + flash write flush
         ESP.restart();
     }
 }
@@ -391,7 +391,7 @@ void MilaWebServer::handleRestPresets() {
 }
 
 String MilaWebServer::buildStateJson() {
-    StaticJsonDocument<768> doc;
+    StaticJsonDocument<1024> doc;
     doc["type"]           = "state";
     doc["power"]          = _cfg->power;
     doc["brightness"]     = _cfg->brightness;
