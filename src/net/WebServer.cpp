@@ -410,7 +410,9 @@ String MilaWebServer::buildStateJson() {
 
     JsonArray segs = doc["segments"].to<JsonArray>();
     uint16_t physOff = 0;
+    uint8_t activeCount = 0;
     for (uint8_t i = 0; i < MAX_SEGMENTS; i++) {
+        if (_cfg->segments[i].count == 0 && activeCount > 0) continue; // inactive after first
         JsonObject seg = segs.createNestedObject();
         seg["count"]     = _cfg->segments[i].count;
         seg["half"]      = _cfg->segments[i].half;
@@ -418,6 +420,7 @@ String MilaWebServer::buildStateJson() {
         seg["virtCount"] = _cfg->segments[i].half
             ? (_cfg->segments[i].count / 2) : _cfg->segments[i].count;
         physOff += _cfg->segments[i].count;
+        activeCount++;
     }
     doc["dataPin"]        = _cfg->dataPin;
     doc["colorOrder"]     = _cfg->colorOrder;
