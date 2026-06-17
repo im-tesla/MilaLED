@@ -118,7 +118,7 @@ private:
     }
 
     void applyZones(CRGB* leds, uint16_t count) {
-        if (_zoneCount == 0) { fill_solid(leds, count, CRGB::Black); return; }
+        if (_zoneCount == 0) { fill_solid(leds, count, CRGB(255, 0, 0)); return; }
         if (_zoneCount == 1) { fill_solid(leds, count, CRGB(_zones[0].r, _zones[0].g, _zones[0].b)); return; }
 
         // Integer interpolation — fixed-point 8:8, no float math
