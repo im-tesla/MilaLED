@@ -22,6 +22,7 @@
 - Out of scope for v1 (per design spec): presets CRUD, strip reconfiguration (pin/chipset/segments+reboot), Ambilight TV scan, WiFi reset. These stay WiFi/WS-only; the BLE frontend build hides their tabs/sections entirely.
 - No new automated test framework is introduced for the frontend (none exists today — no vitest/jest in `web/package.json`). Firmware verification is compile-only (`pio run -e <env>`) since there's no hardware-in-the-loop test harness in this repo (only `PixelMapper` has a native unit test, and it's pure logic — BLE/GATT code isn't). Final functional verification is manual, on real hardware (Task 12).
 - Added during Task 3 review: `BleServer`'s command reassembly buffer is capped at `MAX_RX_COMMAND_SIZE = 512` bytes (a client that never sends a terminating chunk gets dropped, not an unbounded heap grow), and `onCommandChunk` (NimBLE host task) never mutates `Config`/`EffectsEngine` directly — it hands the completed JSON to a `portMUX_TYPE`-guarded pending-command slot that `BleServer::loop()` (called from the main Arduino loop, single-threaded, added in Task 4) drains and applies. This keeps all `Config`/`EffectsEngine` access on the same task as the rest of the codebase's WS/Hyperion/Ambilight handling.
+- Added during Task 3 re-review: an overflow drop sets `_rxDesynced = true` so stray continuation chunks from the aborted train are ignored until the next `seq==0` (rather than being silently reinterpreted as a new command's start), and both sides of the cross-task hand-off use `std::move` on the `String` payload so no heap-allocating copy happens while `_mux` is held.
 
 ---
 
@@ -298,7 +299,8 @@ private:
     MilaWebServer*  _web    = nullptr;
     NimBLECharacteristic* _stateChar = nullptr;
 
-    String _rxBuffer; // NimBLE task only — no cross-task access
+    String _rxBuffer;          // NimBLE task only — no cross-task access
+    bool   _rxDesynced = false; // NimBLE task only — true after an overflow drop, until the next seq==0
 
     // Shared between the NimBLE task (writer) and loop() (reader/clearer);
     // all access must happen under _mux.
@@ -319,6 +321,7 @@ private:
 #ifdef ESP32
 #include <ArduinoJson.h>
 #include <cstring>
+#include <utility>
 #include "CoreParamRouter.h"
 #include "WebServer.h"
 #include "../version.h"
@@ -383,10 +386,16 @@ void BleServer::onCommandChunk(const uint8_t* data, size_t len) {
     uint8_t seq  = data[0];
     uint8_t more = data[1];
 
-    if (seq == 0) _rxBuffer = "";
+    if (seq == 0) {
+        _rxBuffer = "";
+        _rxDesynced = false;
+    }
+
+    if (_rxDesynced) return; // still waiting for a fresh seq==0 after an earlier overflow drop
 
     if (_rxBuffer.length() + (len - 2) > MAX_RX_COMMAND_SIZE) {
-        _rxBuffer = ""; // runaway/oversized frame train — drop it, wait for the next seq==0
+        _rxBuffer = "";
+        _rxDesynced = true; // ignore stray continuation chunks from this aborted train
         return;
     }
     _rxBuffer.concat(reinterpret_cast<const char*>(data + 2), len - 2);
@@ -395,8 +404,9 @@ void BleServer::onCommandChunk(const uint8_t* data, size_t len) {
         // Hand the completed JSON off to the main loop instead of applying it
         // here — this callback runs on the NimBLE host task, and Config/
         // EffectsEngine must only be touched from the single-threaded loop().
+        // std::move avoids an allocating copy while the critical section is held.
         portENTER_CRITICAL(&_mux);
-        _pendingCommand = _rxBuffer;
+        _pendingCommand = std::move(_rxBuffer);
         _cmdPending = true;
         portEXIT_CRITICAL(&_mux);
         _rxBuffer = "";
@@ -409,7 +419,7 @@ void BleServer::loop() {
 
     portENTER_CRITICAL(&_mux);
     if (_cmdPending) {
-        cmd = _pendingCommand;
+        cmd = std::move(_pendingCommand);
         _cmdPending = false;
         hasCmd = true;
     }
