@@ -63,5 +63,12 @@
     "language": "Language",
     "version": "Firmware"
   },
-  "ambilight": { "status": "Status", "polling": "Polling", "idle": "Idle", "error": "Error" }
+  "ambilight": { "status": "Status", "polling": "Polling", "idle": "Idle", "error": "Error" },
+  "ble": {
+    "title": "Connect to MilaLED",
+    "description": "Pair with your strip over Bluetooth to control it without joining its WiFi network.",
+    "connect": "Connect via Bluetooth",
+    "connecting": "Connecting…",
+    "unsupported": "This browser doesn't support Web Bluetooth. Use Chrome on Android, or the Bluefy app on iOS."
+  }
 }

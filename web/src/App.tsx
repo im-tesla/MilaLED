@@ -7,19 +7,25 @@ import { EffectsTab } from '@/components/tabs/EffectsTab'
 import { ColorTab } from '@/components/tabs/ColorTab'
 import { PresetsTab } from '@/components/tabs/PresetsTab'
 import { SettingsTab } from '@/components/tabs/SettingsTab'
+import { BleConnectDialog } from '@/components/shared/BleConnectDialog'
 import { useLedState } from '@/hooks/useLedState'
+import { TRANSPORT } from '@/lib/capabilities'
 
 const WS_URL = `ws://${window.location.hostname}:81`
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<TabId>('effects')
-  const { state, update, status, scanProgress, foundTvs } = useLedState(WS_URL)
+  const { state, update, status, scanProgress, foundTvs, connect, error } = useLedState(WS_URL)
   const [isDark, setIsDark] = useState(() => localStorage.getItem('theme') !== 'light')
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', isDark)
     localStorage.setItem('theme', isDark ? 'dark' : 'light')
   }, [isDark])
+
+  if (TRANSPORT === 'ble' && status !== 'open') {
+    return <BleConnectDialog status={status} error={error} onConnect={connect} />
+  }
 
   return (
     <div className="min-h-[100dvh] flex flex-col bg-background">

@@ -61,5 +61,12 @@
     "language": "Język",
     "version": "Oprogramowanie"
   },
-  "ambilight": { "status": "Status", "polling": "Pobieranie", "idle": "Bezczynny", "error": "Błąd" }
+  "ambilight": { "status": "Status", "polling": "Pobieranie", "idle": "Bezczynny", "error": "Błąd" },
+  "ble": {
+    "title": "Połącz z MilaLED",
+    "description": "Sparuj się z taśmą przez Bluetooth, aby sterować nią bez łączenia się z jej siecią WiFi.",
+    "connect": "Połącz przez Bluetooth",
+    "connecting": "Łączenie…",
+    "unsupported": "Ta przeglądarka nie obsługuje Web Bluetooth. Użyj Chrome na Androidzie lub aplikacji Bluefy na iOS."
+  }
 }
