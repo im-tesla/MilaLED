@@ -56,6 +56,7 @@ bool ConfigStore::load(Config& cfg) {
     strlcpy(cfg.tvIp, doc["tvIp"] | cfg.tvIp, sizeof(cfg.tvIp));
     cfg.ambPollMs = doc["ambPollMs"] | cfg.ambPollMs;
     strlcpy(cfg.ambMapping, doc["ambMapping"] | cfg.ambMapping, sizeof(cfg.ambMapping));
+    cfg.bleEnabled = doc["bleEnabled"] | cfg.bleEnabled;
     return true;
 }
 
@@ -83,6 +84,7 @@ bool ConfigStore::save(const Config& cfg) {
     doc["tvIp"]           = cfg.tvIp;
     doc["ambPollMs"]      = cfg.ambPollMs;
     doc["ambMapping"]     = cfg.ambMapping;
+    doc["bleEnabled"]     = cfg.bleEnabled;
 
     File f = LittleFS.open(CFG_PATH, "w");
     if (!f) return false;

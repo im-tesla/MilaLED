@@ -34,6 +34,7 @@ struct Config {
     char     tvIp[16]     = "";
     uint16_t ambPollMs    = 100;
     char     ambMapping[16] = "right";
+    bool     bleEnabled   = true;
 };
 
 class ConfigStore {
