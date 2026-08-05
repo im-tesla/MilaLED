@@ -1558,4 +1558,544 @@ Move the phone out of range (or toggle its Bluetooth off), confirm the UI falls 
 
 Open the device's own WiFi-served page as before and confirm nothing changed — all four tabs present, all existing functionality (presets, strip reconfig+reboot, Ambilight scan, WiFi reset) working as it did before this feature was added.
 
+- [ ] **Step 9: Verify negotiated MTU on both target platforms**
+
+Added per the final whole-branch review (see "Post-Implementation Fixes" below): `notifyState()` now clamps its chunk size to the actual negotiated ATT MTU rather than assuming 247. Confirm on both Android Chrome and Bluefy/iOS that a multi-segment state update (configure 2+ active segments on the WiFi build first, so `buildCoreStateJson()`'s payload is large enough to require multiple chunks) round-trips correctly regardless of whatever MTU each platform actually negotiates.
+
+- [ ] **Step 10: Measure WiFi/Hyperion impact of always-on BLE advertising**
+
+ESP32's BLE and WiFi radios share one antenna and a coexistence scheduler. With a Hyperion/HyperHDR source streaming UDP frames, compare frame smoothness/jitter with `bleEnabled` on vs. off (toggle added in "Post-Implementation Fixes" below, in the WiFi build's Strip section). If BLE advertising visibly degrades Hyperion streaming, note it — the toggle is the documented mitigation.
+
 No commit for this task — if any step surfaces a bug, fix it in the relevant earlier task's files and re-run that task's own verification step before returning here.
+
+---
+
+## Post-Implementation Fixes (Final Whole-Branch Review)
+
+After Tasks 1-11 were each individually implemented and reviewed, a final whole-branch review (the broad review a per-task gate can't do) found 2 Critical and 4 Important issues that only became visible with the complete picture. This section documents the fixes applied in response, using the same task-brief-driven, implement-then-review process as Tasks 1-11.
+
+**FR-1 (Critical): GitHub Pages deploy would serve a blank page.** `web/vite.config.ts` never set a `base`, so the BLE build's asset paths resolve against `/` instead of the actual GitHub Pages subpath (`https://im-tesla.github.io/MilaLED/`), 404ing every JS/CSS asset. `web/index.html`'s inline `<style>` font `url('/fonts/...')` has the same problem — it's a `public/`-directory asset referenced by a hardcoded absolute path, which Vite does not automatically rewrite for a non-root `base` (that's expected, documented behavior — `public/` asset references must be written to account for `base` manually, unlike bundled JS/CSS imports which Vite rewrites automatically).
+
+**FR-2 (Critical): BLE clients never receive the strip's actual state.** `BleServer`'s state characteristic had no `onSubscribe` handler and `main.cpp`/`useBluetoothTransport.ts` never requested a state push after connecting, so a freshly-connected BLE client's UI showed hardcoded frontend defaults (`useLedState.ts`'s `DEFAULT`) until something happened to change a *discrete* param on either channel. Fixed by adding an `onSubscribe` callback that requests an initial `notifyState()` push, safely handed off through the same mailbox mechanism as commands (never called directly from the NimBLE task).
+
+**FR-3 (Important): Overlapping BLE GATT writes.** `useThrottledSender` throttles per-key, so two different controls (e.g. brightness slider + speed slider) can each independently fire an "immediate" send in the same tick. `useBluetoothTransport`'s `sendRaw` started a fresh `writeChunks()` for each call with no serialization — two in-flight multi-chunk writes on the same characteristic risk `NetworkError: GATT operation already in progress` (Chrome) or interleaved chunk trains corrupting each other's reassembly on the firmware side. Fixed with a promise-chain write queue.
+
+**FR-4 (Important): `bleEnabled` was unreachable from the UI/API.** The config flag existed (Task 1) and was read at boot (Task 4), but nothing ever wrote it — the only way to disable the BLE radio was hand-editing `config.json` on the filesystem image. Fixed by adding it to the existing reboot-gated `/api/strip` flow (the same mechanism already used for `dataPin`/`colorOrder`/`chipset`) and adding a toggle to the WiFi build's Settings → Strip section.
+
+**FR-5 (Important): The command mailbox's `std::move`-based hand-off could still allocate under a backlog.** Tasks 3's hardening rounds closed the unconditional heap-copy case, but a residual narrow case remained (documented in Task 3's own history). The final review's recommendation — replace the `String`-based mailbox with fixed-size `char` buffers — eliminates the possibility structurally rather than continuing to guard around it: a bounded `memcpy` inside a critical section can never allocate, never fragment the heap, and never hit any of Arduino `String::move()`'s capacity-reuse edge cases. This supersedes the `std::move`/`_cmdPending`-guard mechanics described in Task 3's Global Constraints notes above; those notes are left as a historical record of the iteration, but `BleServer.h`/`.cpp`'s actual final code (below) uses fixed buffers throughout.
+
+**FR-6 (Important): `notifyState()` assumed a negotiated MTU it never verified.** Requesting MTU 247 in `begin()` doesn't guarantee the central grants it; at the BLE-spec-minimum MTU of 23, a fixed 102-byte chunk silently truncates in the NimBLE stack with no error, and the client's `JSON.parse` failure is swallowed. Fixed by querying the actual negotiated MTU per-connection (`NimBLEServer::getPeerInfo(0).getMTU()`) and clamping the chunk size to what it actually allows, falling back to the spec-minimum 23 if no connection info is available yet.
+
+### FR-1: Vite `base` path + `%BASE_URL%` font reference
+
+**Files:**
+- Modify: `web/vite.config.ts`
+- Modify: `web/index.html`
+
+Replace the full contents of `web/vite.config.ts`:
+
+```ts
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+import path from 'path'
+
+export default defineConfig(({ mode }) => ({
+  plugins: [react()],
+  // The WiFi build is served from the device's own root ("/"). The BLE
+  // build is deployed to a GitHub Pages project page subpath, and relative
+  // asset paths work there regardless of the actual repo/org name (this
+  // app has no client-side routing, so relative paths are safe).
+  base: mode === 'ble' ? './' : '/',
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, './src'),
+    },
+  },
+}))
+```
+
+In `web/index.html`, change:
+
+```html
+      src: url('/fonts/Geist-Variable.woff2') format('woff2');
+```
+
+to:
+
+```html
+      src: url('%BASE_URL%fonts/Geist-Variable.woff2') format('woff2');
+```
+
+`%BASE_URL%` is a literal placeholder Vite text-replaces in `.html` files with the configured `base` value at build time — this is the documented mechanism for referencing `public/`-directory assets from raw HTML/CSS in a way that survives a non-root `base` (unlike `<script src>`/`<link href>` on local module files, which Vite already rewrites automatically as part of bundling — the `<script type="module" src="/src/main.tsx">` tag needs no change).
+
+**Verify:**
+```bash
+npm run build
+npm run build:ble
+```
+Then inspect `web/dist-ble/index.html` — the emitted `<script>`/`<link>` tags should reference `./assets/...` (relative), and the font `url(...)` inside the emitted `<style>` block should read `./fonts/Geist-Variable.woff2` (i.e. `%BASE_URL%` resolved to `./`). Also inspect `web/dist/index.html` (the unaffected WiFi build) and confirm its asset paths are still root-absolute (`/assets/...`, `/fonts/...`) — `base: '/'` for the default mode must produce byte-identical output to before this fix, since `scripts/build_web.py` and the ESP's own web server assume root-absolute paths.
+
+### FR-2 + FR-5 + FR-6: `BleServer` — initial-state push, fixed-buffer mailbox, MTU-aware chunking
+
+**Files:**
+- Modify: `src/net/BleServer.h` (full replacement)
+- Modify: `src/net/BleServer.cpp` (full replacement)
+
+These three fixes are combined into one pass because they touch overlapping code (`begin()`, `loop()`, the mailbox, `notifyState()`). Replace the full contents of both files.
+
+`src/net/BleServer.h`:
+
+```cpp
+#pragma once
+#ifdef ESP32
+#include <Arduino.h>
+#include <NimBLEDevice.h>
+#include "../config/ConfigStore.h"
+#include "../leds/EffectsEngine.h"
+
+class MilaWebServer;
+
+// Reassembly cap: comfortably above the 256-byte JSON parse budget in
+// handleCommand(), so a client that never sends a terminating chunk can't
+// grow the buffer without bound. Fixed-size (not String) so the cross-task
+// mailbox hand-off in onCommandChunk()/loop() never allocates on the heap.
+static const size_t BLE_MAX_COMMAND_SIZE = 512;
+
+class BleServer {
+public:
+    void begin(Config* cfg, ConfigStore* store, EffectsEngine* engine);
+    void loop();
+    void notifyState();
+    void setWebServer(MilaWebServer* web) { _web = web; }
+
+    // Called by the command characteristic's write callback (runs on the
+    // NimBLE host task) with one raw chunk: [seq][more][...JSON bytes].
+    void onCommandChunk(const uint8_t* data, size_t len);
+
+    // Called by the state characteristic's subscribe callback (NimBLE host
+    // task) when a client enables notifications, so it gets the strip's
+    // current state immediately instead of stale UI defaults.
+    void requestInitialNotify();
+
+private:
+    Config*         _cfg    = nullptr;
+    ConfigStore*    _store  = nullptr;
+    EffectsEngine*  _engine = nullptr;
+    MilaWebServer*  _web    = nullptr;
+    NimBLEServer*         _server    = nullptr;
+    NimBLECharacteristic* _stateChar = nullptr;
+
+    // NimBLE task only — no cross-task access.
+    char   _rxBuffer[BLE_MAX_COMMAND_SIZE + 1];
+    size_t _rxLen = 0;
+    bool   _rxDesynced = false;
+
+    // Shared mailbox between the NimBLE task (writer) and loop() (reader/
+    // clearer); all access must happen under _mux. Fixed-size buffers mean
+    // every access is a bounded memcpy — no heap allocation is possible, so
+    // there's no risk from holding _mux during the copy, regardless of
+    // backlog (a still-undrained previous command is simply overwritten).
+    char         _pendingCommand[BLE_MAX_COMMAND_SIZE + 1];
+    size_t       _pendingLen = 0;
+    bool         _cmdPending = false;
+    bool         _notifyPending = false;
+    portMUX_TYPE _mux = portMUX_INITIALIZER_UNLOCKED;
+
+    void handleCommand(const char* json);
+    String buildCoreStateJson();
+};
+#endif
+```
+
+`src/net/BleServer.cpp`:
+
+```cpp
+#include "BleServer.h"
+#ifdef ESP32
+#include <ArduinoJson.h>
+#include <cstring>
+#include "CoreParamRouter.h"
+#include "WebServer.h"
+#include "../version.h"
+
+namespace {
+    const char* SERVICE_UUID    = "7a2eec00-4b0f-4bde-9f3f-1a7c6d9b2e10";
+    const char* CMD_CHAR_UUID   = "7a2eec01-4b0f-4bde-9f3f-1a7c6d9b2e10";
+    const char* STATE_CHAR_UUID = "7a2eec02-4b0f-4bde-9f3f-1a7c6d9b2e10";
+    const size_t CHUNK_PAYLOAD  = 100; // keep in sync with CHUNK_PAYLOAD in useBluetoothTransport.ts
+
+    class ServerCallbacks : public NimBLEServerCallbacks {
+    public:
+        void onDisconnect(NimBLEServer* server, NimBLEConnInfo& connInfo, int reason) override {
+            NimBLEDevice::startAdvertising(); // stay discoverable after a client disconnects
+        }
+    };
+
+    class CommandCallbacks : public NimBLECharacteristicCallbacks {
+    public:
+        explicit CommandCallbacks(BleServer* owner) : _owner(owner) {}
+        void onWrite(NimBLECharacteristic* characteristic, NimBLEConnInfo& connInfo) override {
+            std::string val = characteristic->getValue();
+            _owner->onCommandChunk(reinterpret_cast<const uint8_t*>(val.data()), val.length());
+        }
+    private:
+        BleServer* _owner;
+    };
+
+    class StateCallbacks : public NimBLECharacteristicCallbacks {
+    public:
+        explicit StateCallbacks(BleServer* owner) : _owner(owner) {}
+        void onSubscribe(NimBLECharacteristic* characteristic, NimBLEConnInfo& connInfo, uint16_t subValue) override {
+            if (subValue > 0) _owner->requestInitialNotify(); // push current state as soon as a client subscribes
+        }
+    private:
+        BleServer* _owner;
+    };
+}
+
+void BleServer::begin(Config* cfg, ConfigStore* store, EffectsEngine* engine) {
+    _cfg = cfg; _store = store; _engine = engine;
+
+    NimBLEDevice::init("MilaLED");
+    NimBLEDevice::setMTU(247);
+
+    _server = NimBLEDevice::createServer();
+    _server->setCallbacks(new ServerCallbacks());
+
+    NimBLEService* service = _server->createService(SERVICE_UUID);
+
+    NimBLECharacteristic* cmdChar = service->createCharacteristic(
+        CMD_CHAR_UUID, NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_NR);
+    cmdChar->setCallbacks(new CommandCallbacks(this));
+
+    _stateChar = service->createCharacteristic(STATE_CHAR_UUID, NIMBLE_PROPERTY::NOTIFY);
+    _stateChar->setCallbacks(new StateCallbacks(this));
+
+    service->start();
+
+    NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
+    adv->addServiceUUID(SERVICE_UUID);
+    adv->start();
+}
+
+void BleServer::onCommandChunk(const uint8_t* data, size_t len) {
+    if (len < 2) return; // malformed: missing seq/more header
+
+    uint8_t seq  = data[0];
+    uint8_t more = data[1];
+
+    if (seq == 0) {
+        _rxLen = 0;
+        _rxDesynced = false;
+    }
+
+    if (_rxDesynced) return; // still waiting for a fresh seq==0 after an earlier overflow drop
+
+    size_t payloadLen = len - 2;
+    if (_rxLen + payloadLen > BLE_MAX_COMMAND_SIZE) {
+        _rxLen = 0;
+        _rxDesynced = true; // ignore stray continuation chunks from this aborted train
+        return;
+    }
+    memcpy(_rxBuffer + _rxLen, data + 2, payloadLen);
+    _rxLen += payloadLen;
+
+    if (!more) {
+        _rxBuffer[_rxLen] = '\0';
+
+        // Hand the completed JSON off to the main loop instead of applying it
+        // here — this callback runs on the NimBLE host task, and Config/
+        // EffectsEngine must only be touched from the single-threaded loop().
+        // Both buffers are fixed-size, so this memcpy never allocates and is
+        // always safe inside the critical section — a still-undrained
+        // previous command is simply overwritten (latest wins).
+        portENTER_CRITICAL(&_mux);
+        memcpy(_pendingCommand, _rxBuffer, _rxLen + 1);
+        _pendingLen = _rxLen;
+        _cmdPending = true;
+        portEXIT_CRITICAL(&_mux);
+
+        _rxLen = 0;
+    }
+}
+
+void BleServer::requestInitialNotify() {
+    portENTER_CRITICAL(&_mux);
+    _notifyPending = true;
+    portEXIT_CRITICAL(&_mux);
+}
+
+void BleServer::loop() {
+    char cmd[BLE_MAX_COMMAND_SIZE + 1];
+    bool hasCmd   = false;
+    bool doNotify = false;
+
+    portENTER_CRITICAL(&_mux);
+    if (_cmdPending) {
+        memcpy(cmd, _pendingCommand, _pendingLen + 1);
+        _cmdPending = false;
+        hasCmd = true;
+    }
+    if (_notifyPending) {
+        _notifyPending = false;
+        doNotify = true;
+    }
+    portEXIT_CRITICAL(&_mux);
+
+    if (hasCmd)   handleCommand(cmd);
+    if (doNotify) notifyState();
+}
+
+void BleServer::handleCommand(const char* json) {
+    StaticJsonDocument<256> doc;
+    if (deserializeJson(doc, json)) return;
+
+    ParamApplyResult r = applyCoreParams(*_cfg, doc);
+
+    if (r.anyChanged) _engine->applyConfig(*_cfg);
+    if (r.discreteChanged) {
+        _store->save(*_cfg);
+        notifyState();
+        if (_web) _web->broadcastState(); // keep the WiFi/WS clients in sync too
+    }
+}
+
+void BleServer::notifyState() {
+    if (!_stateChar) return;
+
+    // Clamp chunk size to the actual negotiated MTU so notifications never
+    // silently truncate — requesting MTU 247 in begin() doesn't guarantee
+    // the central grants it. Falls back to the BLE spec's minimum ATT MTU
+    // (23) if no peer info is available yet.
+    uint16_t mtu = 23;
+    if (_server && _server->getConnectedCount() > 0) {
+        mtu = _server->getPeerInfo(0).getMTU();
+    }
+    size_t chunkPayload = (mtu > 5) ? (mtu - 5) : 1; // ATT overhead (3) + our seq/more header (2)
+    if (chunkPayload > CHUNK_PAYLOAD) chunkPayload = CHUNK_PAYLOAD;
+
+    String json = buildCoreStateJson();
+
+    size_t len    = json.length();
+    size_t offset = 0;
+    uint8_t seq   = 0;
+    uint8_t frame[2 + CHUNK_PAYLOAD]; // sized for the largest possible chunk (CHUNK_PAYLOAD), even though a low-MTU connection will use less
+
+    do {
+        size_t chunkLen = len - offset;
+        if (chunkLen > chunkPayload) chunkLen = chunkPayload;
+        bool more = (offset + chunkLen) < len;
+
+        frame[0] = seq;
+        frame[1] = more ? 1 : 0;
+        memcpy(frame + 2, json.c_str() + offset, chunkLen);
+
+        _stateChar->setValue(frame, 2 + chunkLen);
+        _stateChar->notify();
+
+        offset += chunkLen;
+        seq++;
+    } while (offset < len);
+}
+
+String BleServer::buildCoreStateJson() {
+    StaticJsonDocument<512> doc;
+    doc["type"]           = "state";
+    doc["power"]          = _cfg->power;
+    doc["brightness"]     = _cfg->brightness;
+    doc["effect"]         = _cfg->effect;
+    doc["speed"]          = _cfg->speed;
+    doc["intensity"]      = _cfg->intensity;
+    char hex[8];
+    snprintf(hex, sizeof(hex), "#%06lX", _cfg->colorPrimary);
+    doc["colorPrimary"]   = hex;
+    snprintf(hex, sizeof(hex), "#%06lX", _cfg->colorSecondary);
+    doc["colorSecondary"] = hex;
+    doc["palette"]        = _cfg->palette;
+    doc["virtualLeds"]    = _engine->virtualCount();
+    doc["version"]        = MILALED_VERSION;
+
+    JsonArray segs = doc["segments"].to<JsonArray>();
+    uint16_t physOff = 0;
+    uint8_t activeCount = 0;
+    for (uint8_t i = 0; i < MAX_SEGMENTS; i++) {
+        if (_cfg->segments[i].count == 0 && activeCount > 0) continue;
+        JsonObject seg = segs.createNestedObject();
+        seg["count"]     = _cfg->segments[i].count;
+        seg["half"]      = _cfg->segments[i].half;
+        seg["start"]     = physOff;
+        seg["virtCount"] = _cfg->segments[i].half
+            ? (_cfg->segments[i].count / 2) : _cfg->segments[i].count;
+        physOff += _cfg->segments[i].count;
+        activeCount++;
+    }
+
+    String out;
+    serializeJson(doc, out);
+    return out;
+}
+#endif
+```
+
+**Verify:**
+```bash
+pio run -e esp32dev
+pio run -e esp32-c3-supermini
+```
+Both must succeed. Hand-trace: (1) the `onSubscribe`/`requestInitialNotify`/`loop()` path — confirm a fresh subscription results in exactly one `notifyState()` call from `loop()`, never from the NimBLE task directly; (2) the fixed-buffer mailbox — confirm `onCommandChunk`'s `memcpy` into `_pendingCommand` and `loop()`'s `memcpy` out of it are both bounded by `_rxLen`/`_pendingLen + 1` and never read/write past `BLE_MAX_COMMAND_SIZE + 1`; (3) `notifyState()`'s MTU clamp — confirm `chunkPayload` is never 0 and never exceeds `CHUNK_PAYLOAD`, and that `frame[2 + CHUNK_PAYLOAD]` is large enough for the largest possible `chunkLen`.
+
+### FR-4: `bleEnabled` reachable from the UI (firmware half)
+
+**Files:**
+- Modify: `src/net/WebServer.cpp` (`/api/strip` POST handler, `buildStateJson()`)
+
+In the `/api/strip` POST handler, after the existing `if (doc.containsKey("chipset")) _cfg->chipset = doc["chipset"];` line, add:
+
+```cpp
+        if (doc.containsKey("bleEnabled")) _cfg->bleEnabled = doc["bleEnabled"];
+```
+
+In `buildStateJson()`, after `doc["chipset"] = _cfg->chipset;`, add:
+
+```cpp
+    doc["bleEnabled"]     = _cfg->bleEnabled;
+```
+
+This reuses the existing reboot-gated strip-config flow (`_pendingRestart = true` already fires for this handler) — changing `bleEnabled` reboots the device, which is required anyway since `bleServer.begin()` only runs once at boot in `setup()`.
+
+**Verify:**
+```bash
+pio run -e esp32dev
+pio run -e esp12e
+```
+Both must succeed (the ESP8266 build gets the new `bleEnabled` field in its state JSON too, since `Config::bleEnabled` isn't ESP32-guarded — harmless there, it's simply never acted on).
+
+### FR-3: BLE write queue serialization (frontend)
+
+**Files:**
+- Modify: `web/src/hooks/useBluetoothTransport.ts`
+
+Add a `useRef` import if not already present (it already is), and add a write-queue ref alongside the existing refs:
+
+```ts
+  const writeQueueRef = useRef<Promise<void>>(Promise.resolve())
+```
+
+Change `sendRaw`'s body from:
+
+```ts
+    writeChunks().catch((err: Error) => {
+      setError(err.message || 'Bluetooth write failed')
+    })
+```
+
+to:
+
+```ts
+    // Chain onto the previous write instead of firing concurrently — two
+    // in-flight writeValueWithoutResponse() calls on the same characteristic
+    // risk "GATT operation already in progress" (Chrome) or interleaved
+    // chunk trains corrupting each other's reassembly on the firmware side.
+    writeQueueRef.current = writeQueueRef.current
+      .then(writeChunks)
+      .catch((err: Error) => {
+        setError(err.message || 'Bluetooth write failed')
+      })
+```
+
+The `.catch()` staying part of the chained assignment is what matters: it means a failed write doesn't permanently break the queue for subsequent sends (the chain continues from a resolved promise either way).
+
+**Verify:**
+```bash
+npx tsc -b --noEmit
+```
+Hand-trace: two `sendRaw` calls issued back-to-back (e.g. simulating a slider drag on one control plus a color change on another, both landing in the same tick) — confirm the second call's `writeChunks` only begins after the first's promise (success or caught failure) settles, never concurrently.
+
+### FR-4: `bleEnabled` toggle (frontend half)
+
+**Files:**
+- Modify: `web/src/hooks/useLedState.ts` (`LedState` interface, `DEFAULT`)
+- Modify: `web/src/components/tabs/SettingsTab.tsx`
+- Modify: `web/src/i18n/en.json`, `web/src/i18n/pl.json`
+
+In `useLedState.ts`, add `bleEnabled: boolean` to the `LedState` interface (after `chipset: number`) and to `DEFAULT` (after `chipset: 2,`, value `true`):
+
+```ts
+  chipset: number
+  bleEnabled: boolean
+```
+```ts
+  chipset: 2,
+  bleEnabled: true,
+```
+
+In `SettingsTab.tsx`, add the `Switch` import:
+
+```tsx
+import { Switch } from '@/components/ui/switch'
+```
+
+Add local state (alongside the existing `chipset` state):
+
+```tsx
+  const [bleEnabled, setBleEnabled] = useState(state.bleEnabled)
+```
+
+Add it to the existing resync `useEffect`'s body and dependency array:
+
+```tsx
+  useEffect(() => {
+    if (state.segments?.length) setSegments([...state.segments])
+    setDataPin(state.dataPin)
+    setColorOrder(state.colorOrder)
+    setChipset(state.chipset)
+    setBleEnabled(state.bleEnabled)
+  }, [state.segments, state.dataPin, state.colorOrder, state.chipset, state.bleEnabled])
+```
+
+Add it to `saveStrip`'s POST body:
+
+```tsx
+      body: JSON.stringify({
+        segments: segments.filter(s => s.count >= 0).slice(0, MAX_SEGMENTS),
+        dataPin,
+        colorOrder,
+        chipset,
+        bleEnabled,
+      }),
+```
+
+Add a toggle row inside the Strip section's inner box (`<div className="rounded-xl bg-zinc-900 border border-zinc-800 p-3 space-y-3">`), placed right before the `saveStrip` `Button`:
+
+```tsx
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-zinc-400">{t('settings.bleEnabled')}</span>
+            <Switch
+              checked={bleEnabled}
+              onCheckedChange={setBleEnabled}
+              className="data-[state=checked]:bg-amber-400"
+            />
+          </div>
+```
+
+In `web/src/i18n/en.json`, add to the `settings` object (after `"chipset": "LED chipset",`):
+
+```json
+    "bleEnabled": "Bluetooth control",
+```
+
+In `web/src/i18n/pl.json`, add to the `settings` object (after `"chipset": "Układ LED",`):
+
+```json
+    "bleEnabled": "Sterowanie Bluetooth",
+```
+
+Note: this toggle is only reachable in the WiFi build (the whole Strip section is gated by `capabilities.stripConfig`, which is `false` for the BLE build) — appropriate, since you can't disable your own BLE connection from within that same BLE connection anyway.
+
+**Verify:**
+```bash
+npx tsc -b --noEmit
+npm run build
+npm run build:ble
+```
+All three must succeed.
