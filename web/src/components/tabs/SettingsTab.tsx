@@ -5,6 +5,7 @@ import { AmbilightStatus } from '@/components/shared/AmbilightStatus'
 import { capabilities } from '@/lib/capabilities'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Switch } from '@/components/ui/switch'
 import {
   Select,
   SelectContent,
@@ -62,6 +63,7 @@ export function SettingsTab({ state, update, scanProgress, foundTvs }: Props) {
   const [dataPin,  setDataPin]  = useState(state.dataPin)
   const [colorOrder, setColorOrder] = useState(state.colorOrder)
   const [chipset,   setChipset]   = useState(state.chipset)
+  const [bleEnabled, setBleEnabled] = useState(state.bleEnabled)
   const [rebooting, setRebooting] = useState(false)
   const [confirmWifi, setConfirmWifi] = useState(false)
   const [wifiResetting, setWifiResetting] = useState(false)
@@ -72,7 +74,8 @@ export function SettingsTab({ state, update, scanProgress, foundTvs }: Props) {
     setDataPin(state.dataPin)
     setColorOrder(state.colorOrder)
     setChipset(state.chipset)
-  }, [state.segments, state.dataPin, state.colorOrder, state.chipset])
+    setBleEnabled(state.bleEnabled)
+  }, [state.segments, state.dataPin, state.colorOrder, state.chipset, state.bleEnabled])
 
   const localVirt = segments.reduce(
     (sum, s) => sum + Math.floor(s.count / (s.half ? 2 : 1)),
@@ -107,6 +110,7 @@ export function SettingsTab({ state, update, scanProgress, foundTvs }: Props) {
         dataPin,
         colorOrder,
         chipset,
+        bleEnabled,
       }),
     }).catch(() => {})
     setTimeout(() => setRebooting(false), 15000)
@@ -287,6 +291,14 @@ export function SettingsTab({ state, update, scanProgress, foundTvs }: Props) {
                 ))}
               </SelectContent>
             </Select>
+          </div>
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-zinc-400">{t('settings.bleEnabled')}</span>
+            <Switch
+              checked={bleEnabled}
+              onCheckedChange={setBleEnabled}
+              className="data-[state=checked]:bg-amber-400"
+            />
           </div>
           <Button
             onClick={saveStrip}

@@ -16,6 +16,7 @@ export function useBluetoothTransport(
   const onMessageRef = useRef(onMessage)
   onMessageRef.current = onMessage
   const rxBufferRef  = useRef<Uint8Array[]>([])
+  const writeQueueRef = useRef<Promise<void>>(Promise.resolve())
 
   const handleNotification = useCallback((event: Event) => {
     const target = event.target as BluetoothRemoteGATTCharacteristic
@@ -65,9 +66,15 @@ export function useBluetoothTransport(
         seq++
       } while (offset < bytes.length)
     }
-    writeChunks().catch((err: Error) => {
-      setError(err.message || 'Bluetooth write failed')
-    })
+    // Chain onto the previous write instead of firing concurrently — two
+    // in-flight writeValueWithoutResponse() calls on the same characteristic
+    // risk "GATT operation already in progress" (Chrome) or interleaved
+    // chunk trains corrupting each other's reassembly on the firmware side.
+    writeQueueRef.current = writeQueueRef.current
+      .then(writeChunks)
+      .catch((err: Error) => {
+        setError(err.message || 'Bluetooth write failed')
+      })
   }, [])
 
   const send = useThrottledSender(sendRaw)

@@ -26,6 +26,7 @@ export interface LedState {
   dataPin: number
   colorOrder: number
   chipset: number
+  bleEnabled: boolean
   version: string
   tvIp: string
   ambPollMs: number
@@ -54,6 +55,7 @@ const DEFAULT: LedState = {
   dataPin: 2,
   colorOrder: 2,
   chipset: 2,
+  bleEnabled: true,
   version: '',
   tvIp: '',
   ambPollMs: 100,

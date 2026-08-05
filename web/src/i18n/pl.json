@@ -38,6 +38,7 @@
     "dataPin": "Pin danych LED",
     "colorOrder": "Kolejność kolorów",
     "chipset": "Układ LED",
+    "bleEnabled": "Sterowanie Bluetooth",
     "saveReboot": "Zapisz i uruchom ponownie",
     "rebooting": "Restartowanie…",
     "network": "Sieć",
