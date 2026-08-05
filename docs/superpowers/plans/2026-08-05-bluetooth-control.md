@@ -1068,13 +1068,16 @@ Then, inside `useLedState`, replace:
 with:
 
 ```ts
-  // TRANSPORT is a build-time constant (Vite inlines import.meta.env and
-  // dead-code-eliminates the unused branch), so exactly one of these two
-  // hooks ever actually runs for a given bundle.
-  // eslint-disable-next-line react-hooks/rules-of-hooks
+  /* eslint-disable react-hooks/rules-of-hooks -- TRANSPORT is a build-time
+     constant (Vite inlines import.meta.env and dead-code-eliminates the
+     unused branch), so exactly one of these two hooks ever actually runs
+     for a given bundle. A block disable/enable pair is used instead of
+     eslint-disable-next-line because the ternary's hook calls span multiple
+     lines, which a single-line directive does not cover. */
   const { send, status, connect, error } = TRANSPORT === 'ble'
     ? useBluetoothTransport(onMessage)
     : { ...useWebSocket(wsUrl, onMessage), error: null as string | null }
+  /* eslint-enable react-hooks/rules-of-hooks */
 ```
 
 And finally, change the return statement from:
@@ -1094,8 +1097,9 @@ to:
 Run (from `web/`):
 ```bash
 npx tsc -b --noEmit
+npx eslint src/hooks/useLedState.ts src/lib/capabilities.ts
 ```
-Expected: no errors.
+Expected: no errors from either command — the `eslint` run specifically confirms the block-disable comment actually suppresses `react-hooks/rules-of-hooks` on both branches of the ternary (a single-line `eslint-disable-next-line` would not, since the hook calls span multiple lines).
 
 - [ ] **Step 4: Commit**
 
