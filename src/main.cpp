@@ -6,12 +6,18 @@
 #include "leds/EffectsEngine.h"
 #include "wifi/NetworkManager.h"
 #include "net/WebServer.h"
+#ifdef ESP32
+#include "net/BleServer.h"
+#endif
 
 static Config         cfg;
 static ConfigStore    cfgStore;
 static EffectsEngine  engine;
 static NetworkManager network;
 static MilaWebServer  webServer;
+#ifdef ESP32
+static BleServer      bleServer;
+#endif
 
 static uint32_t lastSave = 0;
 
@@ -52,6 +58,15 @@ void setup() {
     Serial.println("[http]  starting web server...");
     webServer.begin(&cfg, &cfgStore, &engine);
 
+#ifdef ESP32
+    if (cfg.bleEnabled) {
+        Serial.println("[ble]   starting BLE server...");
+        bleServer.begin(&cfg, &cfgStore, &engine);
+        webServer.setBleServer(&bleServer);
+        bleServer.setWebServer(&webServer);
+    }
+#endif
+
     Serial.println("[ota]   starting ArduinoOTA...");
     ArduinoOTA.setHostname("milaled");
     ArduinoOTA.begin();
@@ -75,6 +90,9 @@ void loop() {
     engine.ambilightPoll();   // HTTP poll TV (non-blocking, skips tick gate)
     network.loop();           // MDNS.update()
     webServer.loop();         // HTTP + WebSocket handlers
+#ifdef ESP32
+    bleServer.loop(); // drains any command reassembled on the NimBLE task and applies it here
+#endif
     engine.tick();            // LED frame update (20ms throttled)
     ArduinoOTA.handle();      // OTA update check
 

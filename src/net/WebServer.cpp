@@ -10,6 +10,9 @@
 #include <WiFiManager.h>
 #include "../version.h"
 #include "CoreParamRouter.h"
+#ifdef ESP32
+#include "BleServer.h"
+#endif
 
 void MilaWebServer::begin(Config* cfg, ConfigStore* store, EffectsEngine* engine) {
     _cfg = cfg; _store = store; _engine = engine;
@@ -307,6 +310,9 @@ void MilaWebServer::loop() {
 void MilaWebServer::broadcastState() {
     String json = buildStateJson();
     _ws.broadcastTXT(json.c_str());
+#ifdef ESP32
+    if (_ble) _ble->notifyState();
+#endif
 }
 
 void MilaWebServer::broadcastScanProgress(uint8_t pct, const char* msg) {

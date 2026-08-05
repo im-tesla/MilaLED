@@ -2,6 +2,7 @@
 #ifdef ESP32
 #include <WebServer.h>
 using WebServerClass = WebServer;
+class BleServer;
 #else
 #include <ESP8266WebServer.h>
 using WebServerClass = ESP8266WebServer;
@@ -16,6 +17,9 @@ public:
     void loop();
     void broadcastState();
     void broadcastScanProgress(uint8_t pct, const char* msg);
+#ifdef ESP32
+    void setBleServer(BleServer* ble) { _ble = ble; }
+#endif
 
 private:
     WebServerClass   _http{80};
@@ -23,6 +27,9 @@ private:
     Config*          _cfg    = nullptr;
     ConfigStore*     _store  = nullptr;
     EffectsEngine*   _engine = nullptr;
+#ifdef ESP32
+    BleServer*       _ble = nullptr;
+#endif
     bool             _pendingRestart = false;
     bool             _scanActive  = false;
     bool             _scanCancel  = false;
