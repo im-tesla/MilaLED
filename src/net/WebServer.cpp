@@ -238,6 +238,7 @@ void MilaWebServer::begin(Config* cfg, ConfigStore* store, EffectsEngine* engine
         if (doc.containsKey("dataPin"))   _cfg->dataPin   = doc["dataPin"];
         if (doc.containsKey("colorOrder"))_cfg->colorOrder= doc["colorOrder"];
         if (doc.containsKey("chipset"))   _cfg->chipset   = doc["chipset"];
+        if (doc.containsKey("bleEnabled")) _cfg->bleEnabled = doc["bleEnabled"];
         _store->save(*_cfg);
         _http.send(200, "application/json", "{\"ok\":true}");
         _pendingRestart = true;
@@ -416,6 +417,7 @@ String MilaWebServer::buildStateJson() {
     doc["dataPin"]        = _cfg->dataPin;
     doc["colorOrder"]     = _cfg->colorOrder;
     doc["chipset"]        = _cfg->chipset;
+    doc["bleEnabled"]     = _cfg->bleEnabled;
     doc["version"]        = MILALED_VERSION;
     doc["tvIp"]           = _cfg->tvIp;
     const char* statusMap[] = {"idle", "polling", "error"};

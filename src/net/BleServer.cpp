@@ -2,7 +2,6 @@
 #ifdef ESP32
 #include <ArduinoJson.h>
 #include <cstring>
-#include <utility>
 #include "CoreParamRouter.h"
 #include "WebServer.h"
 #include "../version.h"
@@ -12,11 +11,6 @@ namespace {
     const char* CMD_CHAR_UUID   = "7a2eec01-4b0f-4bde-9f3f-1a7c6d9b2e10";
     const char* STATE_CHAR_UUID = "7a2eec02-4b0f-4bde-9f3f-1a7c6d9b2e10";
     const size_t CHUNK_PAYLOAD  = 100; // keep in sync with CHUNK_PAYLOAD in useBluetoothTransport.ts
-
-    // Reassembly cap: comfortably above the 256-byte StaticJsonDocument budget
-    // handleCommand() parses into, so a client that never sends a terminating
-    // chunk can't grow _rxBuffer without bound.
-    const size_t MAX_RX_COMMAND_SIZE = 512;
 
     class ServerCallbacks : public NimBLEServerCallbacks {
     public:
@@ -35,6 +29,16 @@ namespace {
     private:
         BleServer* _owner;
     };
+
+    class StateCallbacks : public NimBLECharacteristicCallbacks {
+    public:
+        explicit StateCallbacks(BleServer* owner) : _owner(owner) {}
+        void onSubscribe(NimBLECharacteristic* characteristic, NimBLEConnInfo& connInfo, uint16_t subValue) override {
+            if (subValue > 0) _owner->requestInitialNotify(); // push current state as soon as a client subscribes
+        }
+    private:
+        BleServer* _owner;
+    };
 }
 
 void BleServer::begin(Config* cfg, ConfigStore* store, EffectsEngine* engine) {
@@ -43,16 +47,17 @@ void BleServer::begin(Config* cfg, ConfigStore* store, EffectsEngine* engine) {
     NimBLEDevice::init("MilaLED");
     NimBLEDevice::setMTU(247);
 
-    NimBLEServer* server = NimBLEDevice::createServer();
-    server->setCallbacks(new ServerCallbacks());
+    _server = NimBLEDevice::createServer();
+    _server->setCallbacks(new ServerCallbacks());
 
-    NimBLEService* service = server->createService(SERVICE_UUID);
+    NimBLEService* service = _server->createService(SERVICE_UUID);
 
     NimBLECharacteristic* cmdChar = service->createCharacteristic(
         CMD_CHAR_UUID, NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_NR);
     cmdChar->setCallbacks(new CommandCallbacks(this));
 
     _stateChar = service->createCharacteristic(STATE_CHAR_UUID, NIMBLE_PROPERTY::NOTIFY);
+    _stateChar->setCallbacks(new StateCallbacks(this));
 
     service->start();
 
@@ -68,51 +73,65 @@ void BleServer::onCommandChunk(const uint8_t* data, size_t len) {
     uint8_t more = data[1];
 
     if (seq == 0) {
-        _rxBuffer = "";
+        _rxLen = 0;
         _rxDesynced = false;
     }
 
     if (_rxDesynced) return; // still waiting for a fresh seq==0 after an earlier overflow drop
 
-    if (_rxBuffer.length() + (len - 2) > MAX_RX_COMMAND_SIZE) {
-        _rxBuffer = "";
+    size_t payloadLen = len - 2;
+    if (_rxLen + payloadLen > BLE_MAX_COMMAND_SIZE) {
+        _rxLen = 0;
         _rxDesynced = true; // ignore stray continuation chunks from this aborted train
         return;
     }
-    _rxBuffer.concat(reinterpret_cast<const char*>(data + 2), len - 2);
+    memcpy(_rxBuffer + _rxLen, data + 2, payloadLen);
+    _rxLen += payloadLen;
 
     if (!more) {
+        _rxBuffer[_rxLen] = '\0';
+
         // Hand the completed JSON off to the main loop instead of applying it
         // here — this callback runs on the NimBLE host task, and Config/
         // EffectsEngine must only be touched from the single-threaded loop().
+        // Both buffers are fixed-size, so this memcpy never allocates and is
+        // always safe inside the critical section — a still-undrained
+        // previous command is simply overwritten (latest wins).
         portENTER_CRITICAL(&_mux);
-        if (!_cmdPending) {
-            // Only assign when the mailbox is empty: _pendingCommand then holds
-            // no live heap buffer, so std::move always takes Arduino String's
-            // zero-cost pointer-steal path, never its memmove+free reuse path.
-            // If a previous command is still undrained, drop this new one
-            // rather than risk that heap work while the critical section is held.
-            _pendingCommand = std::move(_rxBuffer);
-            _cmdPending = true;
-        }
+        memcpy(_pendingCommand, _rxBuffer, _rxLen + 1);
+        _pendingLen = _rxLen;
+        _cmdPending = true;
         portEXIT_CRITICAL(&_mux);
-        _rxBuffer = "";
+
+        _rxLen = 0;
     }
 }
 
+void BleServer::requestInitialNotify() {
+    portENTER_CRITICAL(&_mux);
+    _notifyPending = true;
+    portEXIT_CRITICAL(&_mux);
+}
+
 void BleServer::loop() {
-    String cmd;
-    bool hasCmd = false;
+    char cmd[BLE_MAX_COMMAND_SIZE + 1];
+    bool hasCmd   = false;
+    bool doNotify = false;
 
     portENTER_CRITICAL(&_mux);
     if (_cmdPending) {
-        cmd = std::move(_pendingCommand);
+        memcpy(cmd, _pendingCommand, _pendingLen + 1);
         _cmdPending = false;
         hasCmd = true;
     }
+    if (_notifyPending) {
+        _notifyPending = false;
+        doNotify = true;
+    }
     portEXIT_CRITICAL(&_mux);
 
-    if (hasCmd) handleCommand(cmd.c_str());
+    if (hasCmd)   handleCommand(cmd);
+    if (doNotify) notifyState();
 }
 
 void BleServer::handleCommand(const char* json) {
@@ -131,16 +150,28 @@ void BleServer::handleCommand(const char* json) {
 
 void BleServer::notifyState() {
     if (!_stateChar) return;
+
+    // Clamp chunk size to the actual negotiated MTU so notifications never
+    // silently truncate — requesting MTU 247 in begin() doesn't guarantee
+    // the central grants it. Falls back to the BLE spec's minimum ATT MTU
+    // (23) if no peer info is available yet.
+    uint16_t mtu = 23;
+    if (_server && _server->getConnectedCount() > 0) {
+        mtu = _server->getPeerInfo(0).getMTU();
+    }
+    size_t chunkPayload = (mtu > 5) ? (mtu - 5) : 1; // ATT overhead (3) + our seq/more header (2)
+    if (chunkPayload > CHUNK_PAYLOAD) chunkPayload = CHUNK_PAYLOAD;
+
     String json = buildCoreStateJson();
 
     size_t len    = json.length();
     size_t offset = 0;
     uint8_t seq   = 0;
-    uint8_t frame[2 + CHUNK_PAYLOAD];
+    uint8_t frame[2 + CHUNK_PAYLOAD]; // sized for the largest possible chunk (CHUNK_PAYLOAD), even though a low-MTU connection will use less
 
     do {
         size_t chunkLen = len - offset;
-        if (chunkLen > CHUNK_PAYLOAD) chunkLen = CHUNK_PAYLOAD;
+        if (chunkLen > chunkPayload) chunkLen = chunkPayload;
         bool more = (offset + chunkLen) < len;
 
         frame[0] = seq;
