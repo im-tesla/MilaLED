@@ -1,0 +1,1469 @@
+# Bluetooth Control (ESP32) Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Add an always-on Bluetooth LE control channel on ESP32 boards (power/effect/palette/brightness/speed/intensity/colors, plus read-only segment/version info), alongside the existing WiFi/WebSocket channel, paired with a GitHub-Pages-hosted copy of the same React UI that connects over Web Bluetooth instead of WiFi.
+
+**Architecture:** Firmware gets a new ESP32-only `BleServer` (NimBLE) exposing a custom GATT service with a chunked write characteristic (commands) and a chunked notify characteristic (state), reusing the WebSocket handler's param-apply rules via an extracted `applyCoreParams` function, and cross-notifying the existing `MilaWebServer` so both channels stay in sync. The frontend gets a second transport hook (`useBluetoothTransport`) with the same shape as `useWebSocket`, selected at build time via `VITE_TRANSPORT=ble`, plus a connect dialog and capability-based hiding of BLE-unsupported tabs (Presets, Strip Config, Ambilight, WiFi reset). A GitHub Actions workflow deploys the BLE build to GitHub Pages.
+
+**Tech Stack:** NimBLE-Arduino 2.5.1 (firmware BLE stack), ArduinoJson v6 (existing), Web Bluetooth API + `@types/web-bluetooth` (frontend), Vite build modes, GitHub Actions (`actions/deploy-pages`).
+
+## Global Constraints
+
+- ESP8266 is never touched — no BLE hardware exists on that platform. All new firmware code lives behind `#ifdef ESP32`.
+- NimBLE-Arduino version: `h2zero/NimBLE-Arduino@^2.5.1` — verified to compile cleanly against both `esp32dev` (RAM 10.8%/35,500B, Flash 43.2%) and `esp32-c3-supermini` (RAM 7.2%/23,460B, Flash 14.6%) using the exact API calls this plan uses.
+- BLE advertised device name: `"MilaLED"`.
+- GATT UUIDs (fixed, must match exactly between firmware and frontend):
+  - Service: `7a2eec00-4b0f-4bde-9f3f-1a7c6d9b2e10`
+  - Command characteristic (write/write-without-response): `7a2eec01-4b0f-4bde-9f3f-1a7c6d9b2e10`
+  - State characteristic (notify): `7a2eec02-4b0f-4bde-9f3f-1a7c6d9b2e10`
+- BLE chunk framing: every write/notify payload is `[seq: uint8][more: uint8][...JSON bytes]`. `seq==0` (re)starts a reassembly buffer; `more==0` marks the final chunk. Chunk payload size is a fixed `100` bytes on both sides (`CHUNK_PAYLOAD` in `BleServer.cpp` and `useBluetoothTransport.ts` — keep these two constants numerically identical if either changes).
+- v1 BLE-writable fields: `power`, `brightness`, `effect`, `speed`, `intensity`, `colorPrimary`, `colorSecondary`, `palette`. v1 BLE state (read-only) additionally includes: `virtualLeds`, `segments`, `version`.
+- Out of scope for v1 (per design spec): presets CRUD, strip reconfiguration (pin/chipset/segments+reboot), Ambilight TV scan, WiFi reset. These stay WiFi/WS-only; the BLE frontend build hides their tabs/sections entirely.
+- No new automated test framework is introduced for the frontend (none exists today — no vitest/jest in `web/package.json`). Firmware verification is compile-only (`pio run -e <env>`) since there's no hardware-in-the-loop test harness in this repo (only `PixelMapper` has a native unit test, and it's pure logic — BLE/GATT code isn't). Final functional verification is manual, on real hardware (Task 12).
+
+---
+
+### Task 1: NimBLE dependency + `bleEnabled` config field
+
+**Files:**
+- Modify: `platformio.ini:51-55` (esp32dev `lib_deps` block)
+- Modify: `src/config/ConfigStore.h:36` (add field after `ambMapping`)
+- Modify: `src/config/ConfigStore.cpp` (load/save)
+
+**Interfaces:**
+- Produces: `Config::bleEnabled` (bool, default `true`), persisted in `config.json`. Later tasks (4) read this to decide whether to start BLE.
+
+- [ ] **Step 1: Add the NimBLE dependency**
+
+In `platformio.ini`, the `[env:esp32dev]` block currently reads:
+
+```ini
+lib_deps  =
+  fastled/FastLED
+  links2004/WebSockets
+  bblanchon/ArduinoJson
+  tzapu/WiFiManager
+```
+
+Change it to:
+
+```ini
+lib_deps  =
+  fastled/FastLED
+  links2004/WebSockets
+  bblanchon/ArduinoJson
+  tzapu/WiFiManager
+  h2zero/NimBLE-Arduino@^2.5.1
+```
+
+Do **not** touch `esp12e`/`nodemcuv2`/`d1_mini`'s `lib_deps` — those stay ESP8266-only. `nodemcu-32s`, `esp32-s3-devkitc-1`, `esp32-c6-devkitc-1`, and `esp32-c3-supermini` all use `lib_deps = ${env:esp32dev.lib_deps}`, so they pick up NimBLE automatically.
+
+- [ ] **Step 2: Add the config field**
+
+In `src/config/ConfigStore.h`, after line 36 (`char ambMapping[16] = "right";`), add:
+
+```cpp
+    bool     bleEnabled   = true;
+```
+
+- [ ] **Step 3: Load and save the field**
+
+In `src/config/ConfigStore.cpp`, in `ConfigStore::load`, after the `ambMapping` line (line 58), add:
+
+```cpp
+    cfg.bleEnabled = doc["bleEnabled"] | cfg.bleEnabled;
+```
+
+In `ConfigStore::save`, after the `doc["ambMapping"] = cfg.ambMapping;` line (line 85), add:
+
+```cpp
+    doc["bleEnabled"]     = cfg.bleEnabled;
+```
+
+- [ ] **Step 4: Verify both platforms still compile**
+
+Run:
+```bash
+pio run -e esp32dev
+pio run -e esp12e
+```
+Expected: both `[SUCCESS]`. The esp12e build must not reference NimBLE at all (it won't — the dependency was only added to the ESP32 block).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add platformio.ini src/config/ConfigStore.h src/config/ConfigStore.cpp
+git commit -m "feat: add NimBLE dependency and bleEnabled config flag"
+```
+
+---
+
+### Task 2: Extract shared `applyCoreParams` param router
+
+**Files:**
+- Create: `src/net/CoreParamRouter.h`
+- Create: `src/net/CoreParamRouter.cpp`
+- Modify: `src/net/WebServer.cpp:335-368` (`handleWsMessage`)
+
+**Interfaces:**
+- Produces: `struct ParamApplyResult { bool anyChanged; bool discreteChanged; }` and `ParamApplyResult applyCoreParams(Config& cfg, JsonDocument& doc)`. Consumed by `WebServer.cpp` (this task) and `BleServer.cpp` (Task 3).
+- Consumes: nothing new — mirrors the existing continuous/discrete rules currently inline in `handleWsMessage`, minus the WS-only fields (`ambPollMs`, `tvIp`, `ambMapping`), which stay in `WebServer.cpp`.
+
+- [ ] **Step 1: Create `CoreParamRouter.h`**
+
+```cpp
+#pragma once
+#include <ArduinoJson.h>
+#include "../config/ConfigStore.h"
+
+struct ParamApplyResult {
+    bool anyChanged      = false;
+    bool discreteChanged = false;
+};
+
+// Applies the "core" LED control params shared between the WebSocket and
+// BLE command channels onto `cfg`. Does not save to flash or broadcast —
+// callers decide what to do with the result (immediate LED apply on
+// anyChanged, save+broadcast on discreteChanged).
+ParamApplyResult applyCoreParams(Config& cfg, JsonDocument& doc);
+```
+
+- [ ] **Step 2: Create `CoreParamRouter.cpp`**
+
+```cpp
+#include "CoreParamRouter.h"
+
+ParamApplyResult applyCoreParams(Config& cfg, JsonDocument& doc) {
+    ParamApplyResult r;
+
+    // Continuous params: apply immediately; caller must NOT save/broadcast
+    // right away (that fights sliders and causes teleport-back jitter).
+    if (doc.containsKey("brightness")) { cfg.brightness = doc["brightness"]; r.anyChanged = true; }
+    if (doc.containsKey("speed"))      { cfg.speed      = doc["speed"];      r.anyChanged = true; }
+    if (doc.containsKey("intensity"))  { cfg.intensity  = doc["intensity"];  r.anyChanged = true; }
+    if (doc.containsKey("colorPrimary")) {
+        const char* hex = doc["colorPrimary"];
+        if (hex && hex[0] == '#') cfg.colorPrimary = strtoul(hex + 1, nullptr, 16);
+        r.anyChanged = true;
+    }
+    if (doc.containsKey("colorSecondary")) {
+        const char* hex = doc["colorSecondary"];
+        if (hex && hex[0] == '#') cfg.colorSecondary = strtoul(hex + 1, nullptr, 16);
+        r.anyChanged = true;
+    }
+
+    // Discrete params: caller should save to flash + broadcast/notify.
+    if (doc.containsKey("power")) { cfg.power = doc["power"]; r.anyChanged = r.discreteChanged = true; }
+    if (doc.containsKey("effect")) {
+        strlcpy(cfg.effect, doc["effect"] | "", sizeof(cfg.effect));
+        r.anyChanged = r.discreteChanged = true;
+    }
+    if (doc.containsKey("palette")) {
+        strlcpy(cfg.palette, doc["palette"] | "", sizeof(cfg.palette));
+        r.anyChanged = r.discreteChanged = true;
+    }
+
+    return r;
+}
+```
+
+- [ ] **Step 3: Refactor `WebServer::handleWsMessage` to use it**
+
+In `src/net/WebServer.cpp`, add `#include "CoreParamRouter.h"` near the top (with the other includes), then replace the body of `handleWsMessage` (currently lines 335-368):
+
+```cpp
+void MilaWebServer::handleWsMessage(const char* json) {
+    StaticJsonDocument<256> doc;
+    if (deserializeJson(doc, json)) return;
+
+    bool anyChanged      = false;
+    bool discreteChanged = false; // needs save + broadcast
+
+    // Continuous params: update config + LEDs immediately, but do NOT save or echo
+    // (echoing would fight the slider and cause teleport-back jitter)
+    if (doc.containsKey("brightness")) { _cfg->brightness = doc["brightness"]; anyChanged = true; }
+    if (doc.containsKey("speed"))      { _cfg->speed      = doc["speed"];      anyChanged = true; }
+    if (doc.containsKey("intensity"))  { _cfg->intensity  = doc["intensity"];  anyChanged = true; }
+    if (doc.containsKey("colorPrimary")) {
+        const char* hex = doc["colorPrimary"];
+        if (hex && hex[0] == '#') _cfg->colorPrimary = strtoul(hex + 1, nullptr, 16);
+        anyChanged = true;
+    }
+    if (doc.containsKey("colorSecondary")) {
+        const char* hex = doc["colorSecondary"];
+        if (hex && hex[0] == '#') _cfg->colorSecondary = strtoul(hex + 1, nullptr, 16);
+        anyChanged = true;
+    }
+    if (doc.containsKey("ambPollMs")) { _cfg->ambPollMs = doc["ambPollMs"]; anyChanged = true; }
+
+    // Discrete params: save to flash + broadcast so other clients see the change
+    if (doc.containsKey("power"))      { _cfg->power = doc["power"];                                              anyChanged = discreteChanged = true; }
+    if (doc.containsKey("effect"))     { strlcpy(_cfg->effect,     doc["effect"]     | "", sizeof(_cfg->effect));  anyChanged = discreteChanged = true; }
+    if (doc.containsKey("palette"))    { strlcpy(_cfg->palette,    doc["palette"]    | "", sizeof(_cfg->palette)); anyChanged = discreteChanged = true; }
+    if (doc.containsKey("tvIp"))       { strlcpy(_cfg->tvIp,       doc["tvIp"]       | "", sizeof(_cfg->tvIp));    anyChanged = discreteChanged = true; }
+    if (doc.containsKey("ambMapping")) { strlcpy(_cfg->ambMapping, doc["ambMapping"] | "", sizeof(_cfg->ambMapping)); anyChanged = discreteChanged = true; }
+
+    if (anyChanged)      _engine->applyConfig(*_cfg);
+    if (discreteChanged) { _store->save(*_cfg); broadcastState(); }
+}
+```
+
+with:
+
+```cpp
+void MilaWebServer::handleWsMessage(const char* json) {
+    StaticJsonDocument<256> doc;
+    if (deserializeJson(doc, json)) return;
+
+    ParamApplyResult r = applyCoreParams(*_cfg, doc);
+    bool anyChanged      = r.anyChanged;
+    bool discreteChanged = r.discreteChanged;
+
+    // WS-only continuous param
+    if (doc.containsKey("ambPollMs")) { _cfg->ambPollMs = doc["ambPollMs"]; anyChanged = true; }
+
+    // WS-only discrete params
+    if (doc.containsKey("tvIp"))       { strlcpy(_cfg->tvIp,       doc["tvIp"]       | "", sizeof(_cfg->tvIp));    anyChanged = discreteChanged = true; }
+    if (doc.containsKey("ambMapping")) { strlcpy(_cfg->ambMapping, doc["ambMapping"] | "", sizeof(_cfg->ambMapping)); anyChanged = discreteChanged = true; }
+
+    if (anyChanged)      _engine->applyConfig(*_cfg);
+    if (discreteChanged) { _store->save(*_cfg); broadcastState(); }
+}
+```
+
+This is behavior-preserving: every `if (doc.containsKey(...))` check and its effect on `cfg`/`anyChanged`/`discreteChanged` is identical to before, just split between the shared function and the WS-only tail.
+
+- [ ] **Step 4: Verify compilation on both platforms**
+
+Run:
+```bash
+pio run -e esp32dev
+pio run -e esp12e
+```
+Expected: both `[SUCCESS]`.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/net/CoreParamRouter.h src/net/CoreParamRouter.cpp src/net/WebServer.cpp
+git commit -m "refactor: extract shared applyCoreParams from handleWsMessage"
+```
+
+---
+
+### Task 3: `BleServer` — GATT service, chunked protocol, command handling
+
+**Files:**
+- Create: `src/net/BleServer.h`
+- Create: `src/net/BleServer.cpp`
+
+**Interfaces:**
+- Consumes: `ParamApplyResult applyCoreParams(Config&, JsonDocument&)` from Task 2; `Config`/`ConfigStore`/`EffectsEngine` from existing code; `MilaWebServer` (forward-declared here, full type used only in the `.cpp`, calling its already-public `broadcastState()`).
+- Produces: `class BleServer` with `begin(Config*, ConfigStore*, EffectsEngine*)`, `notifyState()`, `setWebServer(MilaWebServer*)`, `onCommandChunk(const uint8_t*, size_t)`. Consumed by Task 4 (`main.cpp`, `WebServer.cpp`).
+
+- [ ] **Step 1: Create `BleServer.h`**
+
+```cpp
+#pragma once
+#ifdef ESP32
+#include <Arduino.h>
+#include <NimBLEDevice.h>
+#include "../config/ConfigStore.h"
+#include "../leds/EffectsEngine.h"
+
+class MilaWebServer;
+
+class BleServer {
+public:
+    void begin(Config* cfg, ConfigStore* store, EffectsEngine* engine);
+    void notifyState();
+    void setWebServer(MilaWebServer* web) { _web = web; }
+
+    // Called by the command characteristic's write callback with one raw
+    // chunk: [seq][more][...JSON bytes].
+    void onCommandChunk(const uint8_t* data, size_t len);
+
+private:
+    Config*         _cfg    = nullptr;
+    ConfigStore*    _store  = nullptr;
+    EffectsEngine*  _engine = nullptr;
+    MilaWebServer*  _web    = nullptr;
+    NimBLECharacteristic* _stateChar = nullptr;
+    String _rxBuffer;
+
+    void handleCommand(const char* json);
+    String buildCoreStateJson();
+};
+#endif
+```
+
+- [ ] **Step 2: Create `BleServer.cpp`**
+
+```cpp
+#include "BleServer.h"
+#ifdef ESP32
+#include <ArduinoJson.h>
+#include <cstring>
+#include "CoreParamRouter.h"
+#include "WebServer.h"
+#include "../version.h"
+
+namespace {
+    const char* SERVICE_UUID    = "7a2eec00-4b0f-4bde-9f3f-1a7c6d9b2e10";
+    const char* CMD_CHAR_UUID   = "7a2eec01-4b0f-4bde-9f3f-1a7c6d9b2e10";
+    const char* STATE_CHAR_UUID = "7a2eec02-4b0f-4bde-9f3f-1a7c6d9b2e10";
+    const size_t CHUNK_PAYLOAD  = 100; // keep in sync with CHUNK_PAYLOAD in useBluetoothTransport.ts
+
+    class ServerCallbacks : public NimBLEServerCallbacks {
+    public:
+        void onDisconnect(NimBLEServer* server, NimBLEConnInfo& connInfo, int reason) override {
+            NimBLEDevice::startAdvertising(); // stay discoverable after a client disconnects
+        }
+    };
+
+    class CommandCallbacks : public NimBLECharacteristicCallbacks {
+    public:
+        explicit CommandCallbacks(BleServer* owner) : _owner(owner) {}
+        void onWrite(NimBLECharacteristic* characteristic, NimBLEConnInfo& connInfo) override {
+            std::string val = characteristic->getValue();
+            _owner->onCommandChunk(reinterpret_cast<const uint8_t*>(val.data()), val.length());
+        }
+    private:
+        BleServer* _owner;
+    };
+}
+
+void BleServer::begin(Config* cfg, ConfigStore* store, EffectsEngine* engine) {
+    _cfg = cfg; _store = store; _engine = engine;
+
+    NimBLEDevice::init("MilaLED");
+    NimBLEDevice::setMTU(247);
+
+    NimBLEServer* server = NimBLEDevice::createServer();
+    server->setCallbacks(new ServerCallbacks());
+
+    NimBLEService* service = server->createService(SERVICE_UUID);
+
+    NimBLECharacteristic* cmdChar = service->createCharacteristic(
+        CMD_CHAR_UUID, NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_NR);
+    cmdChar->setCallbacks(new CommandCallbacks(this));
+
+    _stateChar = service->createCharacteristic(STATE_CHAR_UUID, NIMBLE_PROPERTY::NOTIFY);
+
+    service->start();
+
+    NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
+    adv->addServiceUUID(SERVICE_UUID);
+    adv->start();
+}
+
+void BleServer::onCommandChunk(const uint8_t* data, size_t len) {
+    if (len < 2) return; // malformed: missing seq/more header
+
+    uint8_t seq  = data[0];
+    uint8_t more = data[1];
+
+    if (seq == 0) _rxBuffer = "";
+    _rxBuffer.concat(reinterpret_cast<const char*>(data + 2), len - 2);
+
+    if (!more) {
+        handleCommand(_rxBuffer.c_str());
+        _rxBuffer = "";
+    }
+}
+
+void BleServer::handleCommand(const char* json) {
+    StaticJsonDocument<256> doc;
+    if (deserializeJson(doc, json)) return;
+
+    ParamApplyResult r = applyCoreParams(*_cfg, doc);
+
+    if (r.anyChanged) _engine->applyConfig(*_cfg);
+    if (r.discreteChanged) {
+        _store->save(*_cfg);
+        notifyState();
+        if (_web) _web->broadcastState(); // keep the WiFi/WS clients in sync too
+    }
+}
+
+void BleServer::notifyState() {
+    if (!_stateChar) return;
+    String json = buildCoreStateJson();
+
+    size_t len    = json.length();
+    size_t offset = 0;
+    uint8_t seq   = 0;
+    uint8_t frame[2 + CHUNK_PAYLOAD];
+
+    do {
+        size_t chunkLen = len - offset;
+        if (chunkLen > CHUNK_PAYLOAD) chunkLen = CHUNK_PAYLOAD;
+        bool more = (offset + chunkLen) < len;
+
+        frame[0] = seq;
+        frame[1] = more ? 1 : 0;
+        memcpy(frame + 2, json.c_str() + offset, chunkLen);
+
+        _stateChar->setValue(frame, 2 + chunkLen);
+        _stateChar->notify();
+
+        offset += chunkLen;
+        seq++;
+    } while (offset < len);
+}
+
+String BleServer::buildCoreStateJson() {
+    StaticJsonDocument<512> doc;
+    doc["type"]           = "state";
+    doc["power"]          = _cfg->power;
+    doc["brightness"]     = _cfg->brightness;
+    doc["effect"]         = _cfg->effect;
+    doc["speed"]          = _cfg->speed;
+    doc["intensity"]      = _cfg->intensity;
+    char hex[8];
+    snprintf(hex, sizeof(hex), "#%06lX", _cfg->colorPrimary);
+    doc["colorPrimary"]   = hex;
+    snprintf(hex, sizeof(hex), "#%06lX", _cfg->colorSecondary);
+    doc["colorSecondary"] = hex;
+    doc["palette"]        = _cfg->palette;
+    doc["virtualLeds"]    = _engine->virtualCount();
+    doc["version"]        = MILALED_VERSION;
+
+    JsonArray segs = doc["segments"].to<JsonArray>();
+    uint16_t physOff = 0;
+    uint8_t activeCount = 0;
+    for (uint8_t i = 0; i < MAX_SEGMENTS; i++) {
+        if (_cfg->segments[i].count == 0 && activeCount > 0) continue;
+        JsonObject seg = segs.createNestedObject();
+        seg["count"]     = _cfg->segments[i].count;
+        seg["half"]      = _cfg->segments[i].half;
+        seg["start"]     = physOff;
+        seg["virtCount"] = _cfg->segments[i].half
+            ? (_cfg->segments[i].count / 2) : _cfg->segments[i].count;
+        physOff += _cfg->segments[i].count;
+        activeCount++;
+    }
+
+    String out;
+    serializeJson(doc, out);
+    return out;
+}
+#endif
+```
+
+Note: `_web` is `nullptr` until Task 4 wires it via `setWebServer`, so `if (_web)` safely no-ops until then — this task compiles and works standalone.
+
+- [ ] **Step 3: Verify compilation**
+
+Run:
+```bash
+pio run -e esp32dev
+pio run -e esp32-c3-supermini
+```
+Expected: both `[SUCCESS]`. (`BleServer` isn't instantiated yet, but PlatformIO compiles all `.cpp` files under `src/`, so this validates the NimBLE API usage for real.)
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add src/net/BleServer.h src/net/BleServer.cpp
+git commit -m "feat: add BleServer GATT service with chunked command/state protocol"
+```
+
+---
+
+### Task 4: Wire `BleServer` into `main.cpp`, cross-sync with `MilaWebServer`
+
+**Files:**
+- Modify: `src/net/WebServer.h` (forward-declare `BleServer`, add setter/pointer, guard with `#ifdef ESP32`)
+- Modify: `src/net/WebServer.cpp:306-309` (`broadcastState`)
+- Modify: `src/main.cpp`
+
+**Interfaces:**
+- Consumes: `BleServer` from Task 3, `MilaWebServer::broadcastState()` (already public).
+- Produces: cross-wiring so a change from either channel (WS or BLE) is reflected on both.
+
+- [ ] **Step 1: Extend `WebServer.h`**
+
+Change the top of `src/net/WebServer.h` from:
+
+```cpp
+#pragma once
+#ifdef ESP32
+#include <WebServer.h>
+using WebServerClass = WebServer;
+#else
+#include <ESP8266WebServer.h>
+using WebServerClass = ESP8266WebServer;
+#endif
+#include <WebSocketsServer.h>
+#include "../config/ConfigStore.h"
+#include "../leds/EffectsEngine.h"
+
+class MilaWebServer {
+public:
+    void begin(Config* cfg, ConfigStore* store, EffectsEngine* engine);
+    void loop();
+    void broadcastState();
+    void broadcastScanProgress(uint8_t pct, const char* msg);
+
+private:
+    WebServerClass   _http{80};
+    WebSocketsServer _ws{81};
+    Config*          _cfg    = nullptr;
+    ConfigStore*     _store  = nullptr;
+    EffectsEngine*   _engine = nullptr;
+    bool             _pendingRestart = false;
+```
+
+to:
+
+```cpp
+#pragma once
+#ifdef ESP32
+#include <WebServer.h>
+using WebServerClass = WebServer;
+class BleServer;
+#else
+#include <ESP8266WebServer.h>
+using WebServerClass = ESP8266WebServer;
+#endif
+#include <WebSocketsServer.h>
+#include "../config/ConfigStore.h"
+#include "../leds/EffectsEngine.h"
+
+class MilaWebServer {
+public:
+    void begin(Config* cfg, ConfigStore* store, EffectsEngine* engine);
+    void loop();
+    void broadcastState();
+    void broadcastScanProgress(uint8_t pct, const char* msg);
+#ifdef ESP32
+    void setBleServer(BleServer* ble) { _ble = ble; }
+#endif
+
+private:
+    WebServerClass   _http{80};
+    WebSocketsServer _ws{81};
+    Config*          _cfg    = nullptr;
+    ConfigStore*     _store  = nullptr;
+    EffectsEngine*   _engine = nullptr;
+#ifdef ESP32
+    BleServer*       _ble = nullptr;
+#endif
+    bool             _pendingRestart = false;
+```
+
+(The rest of the file — `_scanActive` through the end — is unchanged.)
+
+- [ ] **Step 2: Cross-notify BLE from `broadcastState`**
+
+In `src/net/WebServer.cpp`, add near the top (with the other includes):
+
+```cpp
+#ifdef ESP32
+#include "BleServer.h"
+#endif
+```
+
+Then change `broadcastState` (lines 306-309) from:
+
+```cpp
+void MilaWebServer::broadcastState() {
+    String json = buildStateJson();
+    _ws.broadcastTXT(json.c_str());
+}
+```
+
+to:
+
+```cpp
+void MilaWebServer::broadcastState() {
+    String json = buildStateJson();
+    _ws.broadcastTXT(json.c_str());
+#ifdef ESP32
+    if (_ble) _ble->notifyState();
+#endif
+}
+```
+
+- [ ] **Step 3: Instantiate and wire `BleServer` in `main.cpp`**
+
+At the top of `src/main.cpp`, after `#include "net/WebServer.h"`, add:
+
+```cpp
+#ifdef ESP32
+#include "net/BleServer.h"
+#endif
+```
+
+After `static MilaWebServer  webServer;`, add:
+
+```cpp
+#ifdef ESP32
+static BleServer      bleServer;
+#endif
+```
+
+In `setup()`, right after the existing `webServer.begin(&cfg, &cfgStore, &engine);` line, add:
+
+```cpp
+#ifdef ESP32
+    if (cfg.bleEnabled) {
+        Serial.println("[ble]   starting BLE server...");
+        bleServer.begin(&cfg, &cfgStore, &engine);
+        webServer.setBleServer(&bleServer);
+        bleServer.setWebServer(&webServer);
+    }
+#endif
+```
+
+No `loop()` changes are needed — NimBLE-Arduino runs its GATT/advertising handling on its own FreeRTOS task; there's no polling call to add.
+
+- [ ] **Step 4: Verify compilation on both platforms**
+
+Run:
+```bash
+pio run -e esp32dev
+pio run -e esp12e
+```
+Expected: both `[SUCCESS]`.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/net/WebServer.h src/net/WebServer.cpp src/main.cpp
+git commit -m "feat: wire BleServer into boot sequence, cross-sync with WebServer"
+```
+
+---
+
+### Task 5: Extract `useThrottledSender` from `useWebSocket`
+
+**Files:**
+- Create: `web/src/hooks/useThrottledSender.ts`
+- Modify: `web/src/hooks/useWebSocket.ts`
+
+**Interfaces:**
+- Produces: `useThrottledSender(sendRaw: (json: string) => void): (data: object) => void`. Consumed by `useWebSocket` (this task) and `useBluetoothTransport` (Task 6).
+- Produces (updated): `useWebSocket(url, onMessage): { status: WsStatus; send: (data: object) => void; connect: () => void }` — adds a no-op `connect` so the shape matches `useBluetoothTransport`'s later.
+
+- [ ] **Step 1: Create `useThrottledSender.ts`**
+
+```ts
+import { useRef, useCallback } from 'react'
+
+const THROTTLE_MS = 50 // max one message per 50ms per key, to avoid flooding the device
+
+/**
+ * Per-key throttled sender: at most one message per key per THROTTLE_MS.
+ * Keys sent too recently are batched and flushed together after the window.
+ */
+export function useThrottledSender(sendRaw: (json: string) => void) {
+  const lastSentRef = useRef<Record<string, number>>({})
+  const pendingRef  = useRef<Record<string, unknown>>({})
+  const timerRef    = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const flush = useCallback(() => {
+    timerRef.current = null
+    const pending = pendingRef.current
+    if (Object.keys(pending).length === 0) return
+    pendingRef.current = {}
+    sendRaw(JSON.stringify(pending))
+  }, [sendRaw])
+
+  const send = useCallback((data: object) => {
+    const now = Date.now()
+    const entries = Object.entries(data as Record<string, unknown>)
+
+    const immediate: Record<string, unknown> = {}
+    const deferred:  Record<string, unknown> = {}
+
+    for (const [k, v] of entries) {
+      const last = lastSentRef.current[k] ?? 0
+      if (now - last >= THROTTLE_MS) {
+        immediate[k] = v
+        lastSentRef.current[k] = now
+      } else {
+        deferred[k] = v
+      }
+    }
+
+    if (Object.keys(immediate).length > 0) {
+      sendRaw(JSON.stringify(immediate))
+    }
+
+    if (Object.keys(deferred).length > 0) {
+      Object.assign(pendingRef.current, deferred)
+      if (!timerRef.current) {
+        timerRef.current = setTimeout(flush, THROTTLE_MS)
+      }
+    }
+  }, [flush])
+
+  return send
+}
+```
+
+- [ ] **Step 2: Refactor `useWebSocket.ts` to use it**
+
+Replace the full contents of `web/src/hooks/useWebSocket.ts` with:
+
+```ts
+import { useEffect, useRef, useCallback } from 'react'
+import { useThrottledSender } from './useThrottledSender'
+
+export type WsStatus = 'connecting' | 'open' | 'closed'
+
+export function useWebSocket(
+  url: string,
+  onMessage: (data: unknown) => void
+): { status: WsStatus; send: (data: object) => void; connect: () => void } {
+  const wsRef        = useRef<WebSocket | null>(null)
+  const statusRef    = useRef<WsStatus>('connecting')
+  const onMessageRef = useRef(onMessage)
+  onMessageRef.current = onMessage
+
+  useEffect(() => {
+    const ws = new WebSocket(url)
+    wsRef.current = ws
+    ws.onopen    = () => { statusRef.current = 'open' }
+    ws.onclose   = () => { statusRef.current = 'closed'; setTimeout(() => {
+      // simple reconnect
+      wsRef.current = new WebSocket(url)
+    }, 2000) }
+    ws.onmessage = (e) => {
+      try { onMessageRef.current(JSON.parse(e.data)) } catch {}
+    }
+    return () => ws.close()
+  }, [url])
+
+  const sendRaw = useCallback((json: string) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(json)
+    }
+  }, [])
+
+  const send = useThrottledSender(sendRaw)
+
+  // WS auto-connects on mount; exposed as a no-op only so useLedState has a
+  // uniform { status, send, connect } shape across both transports.
+  const connect = useCallback(() => {}, [])
+
+  return { status: statusRef.current, send, connect }
+}
+```
+
+This is behavior-preserving: `sendRaw` reproduces the exact `readyState === OPEN` guard that both the "immediate" and "deferred/flush" paths used before, and `useThrottledSender` reproduces the per-key throttle/batch logic unchanged.
+
+- [ ] **Step 3: Verify it builds**
+
+Run (from `web/`):
+```bash
+npx tsc -b --noEmit
+```
+Expected: no errors.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add web/src/hooks/useThrottledSender.ts web/src/hooks/useWebSocket.ts
+git commit -m "refactor: extract useThrottledSender from useWebSocket"
+```
+
+---
+
+### Task 6: `useBluetoothTransport` hook
+
+**Files:**
+- Create: `web/src/hooks/useBluetoothTransport.ts`
+- Modify: `web/package.json` (add `@types/web-bluetooth` devDependency)
+
+**Interfaces:**
+- Consumes: `useThrottledSender` (Task 5), `WsStatus` type (`useWebSocket.ts`).
+- Produces: `useBluetoothTransport(onMessage: (data: unknown) => void): { status: WsStatus; send: (data: object) => void; connect: () => void; error: string | null }`. Consumed by `useLedState` (Task 7).
+
+- [ ] **Step 1: Add Web Bluetooth types**
+
+In `web/package.json`, add to `devDependencies` (alphabetical, matching existing style):
+
+```json
+    "@types/web-bluetooth": "^0.0.21",
+```
+
+Run (from `web/`):
+```bash
+npm install
+```
+Expected: `package-lock.json` updates, no errors.
+
+- [ ] **Step 2: Create `useBluetoothTransport.ts`**
+
+```ts
+import { useCallback, useRef, useState } from 'react'
+import { useThrottledSender } from './useThrottledSender'
+import type { WsStatus } from './useWebSocket'
+
+const SERVICE_UUID    = '7a2eec00-4b0f-4bde-9f3f-1a7c6d9b2e10'
+const CMD_CHAR_UUID   = '7a2eec01-4b0f-4bde-9f3f-1a7c6d9b2e10'
+const STATE_CHAR_UUID = '7a2eec02-4b0f-4bde-9f3f-1a7c6d9b2e10'
+const CHUNK_PAYLOAD   = 100 // keep in sync with CHUNK_PAYLOAD in BleServer.cpp
+
+export function useBluetoothTransport(
+  onMessage: (data: unknown) => void
+): { status: WsStatus; send: (data: object) => void; connect: () => void; error: string | null } {
+  const [status, setStatus] = useState<WsStatus>('closed')
+  const [error, setError]   = useState<string | null>(null)
+  const cmdCharRef   = useRef<BluetoothRemoteGATTCharacteristic | null>(null)
+  const onMessageRef = useRef(onMessage)
+  onMessageRef.current = onMessage
+  const rxBufferRef  = useRef<Uint8Array[]>([])
+
+  const handleNotification = useCallback((event: Event) => {
+    const target = event.target as BluetoothRemoteGATTCharacteristic
+    const value = target.value
+    if (!value) return
+    const bytes = new Uint8Array(value.buffer)
+    if (bytes.length < 2) return
+    const seq  = bytes[0]
+    const more = bytes[1]
+    const payload = bytes.slice(2)
+
+    if (seq === 0) rxBufferRef.current = []
+    rxBufferRef.current.push(payload)
+
+    if (!more) {
+      const total = rxBufferRef.current.reduce((n, b) => n + b.length, 0)
+      const joined = new Uint8Array(total)
+      let offset = 0
+      for (const chunk of rxBufferRef.current) { joined.set(chunk, offset); offset += chunk.length }
+      rxBufferRef.current = []
+      try {
+        const json = new TextDecoder().decode(joined)
+        onMessageRef.current(JSON.parse(json))
+      } catch {
+        // dropped/corrupt frame train — ignore, the next state push will recover
+      }
+    }
+  }, [])
+
+  const sendRaw = useCallback((json: string) => {
+    const cmdChar = cmdCharRef.current
+    if (!cmdChar) return
+    const bytes = new TextEncoder().encode(json)
+
+    const writeChunks = async () => {
+      let offset = 0
+      let seq = 0
+      do {
+        const chunkLen = Math.min(CHUNK_PAYLOAD, bytes.length - offset)
+        const more = offset + chunkLen < bytes.length
+        const frame = new Uint8Array(2 + chunkLen)
+        frame[0] = seq
+        frame[1] = more ? 1 : 0
+        frame.set(bytes.subarray(offset, offset + chunkLen), 2)
+        await cmdChar.writeValueWithoutResponse(frame)
+        offset += chunkLen
+        seq++
+      } while (offset < bytes.length)
+    }
+    writeChunks().catch(() => { /* write failed — device likely disconnected */ })
+  }, [])
+
+  const send = useThrottledSender(sendRaw)
+
+  const connect = useCallback(() => {
+    setError(null)
+    setStatus('connecting')
+
+    navigator.bluetooth.requestDevice({
+      filters: [{ services: [SERVICE_UUID] }],
+    })
+      .then(device => {
+        device.addEventListener('gattserverdisconnected', () => {
+          setStatus('closed')
+          cmdCharRef.current = null
+        })
+        return device.gatt!.connect()
+      })
+      .then(server => server.getPrimaryService(SERVICE_UUID))
+      .then(service => Promise.all([
+        service.getCharacteristic(CMD_CHAR_UUID),
+        service.getCharacteristic(STATE_CHAR_UUID),
+      ]))
+      .then(([cmdChar, stateChar]) => {
+        cmdCharRef.current = cmdChar
+        stateChar.addEventListener('characteristicvaluechanged', handleNotification)
+        return stateChar.startNotifications()
+      })
+      .then(() => setStatus('open'))
+      .catch((err: Error) => {
+        setStatus('closed')
+        setError(err.message || 'Bluetooth connection failed')
+      })
+  }, [handleNotification])
+
+  return { status, send, connect, error }
+}
+```
+
+- [ ] **Step 3: Verify it builds**
+
+Run (from `web/`):
+```bash
+npx tsc -b --noEmit
+```
+Expected: no errors (in particular, no missing types for `navigator.bluetooth`/`BluetoothRemoteGATTCharacteristic` — confirms `@types/web-bluetooth` is wired up).
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add web/src/hooks/useBluetoothTransport.ts web/package.json web/package-lock.json
+git commit -m "feat: add useBluetoothTransport hook (Web Bluetooth GATT client)"
+```
+
+---
+
+### Task 7: Transport capabilities + wire `useLedState`
+
+**Files:**
+- Create: `web/src/lib/capabilities.ts`
+- Modify: `web/src/hooks/useLedState.ts:1-3,61,78,85-86`
+
+**Interfaces:**
+- Produces: `capabilities: { presets, stripConfig, ambilight, wifiReset }` and `TRANSPORT: 'wifi' | 'ble'`, both exported from `web/src/lib/capabilities.ts`. Consumed by Task 8 (`App.tsx`) and Task 9 (`TabBar.tsx`, `SettingsTab.tsx`).
+- Produces (updated): `useLedState(wsUrl)` return value gains `connect: () => void` and `error: string | null`.
+
+- [ ] **Step 1: Create `capabilities.ts`**
+
+```ts
+export interface TransportCapabilities {
+  presets: boolean
+  stripConfig: boolean
+  ambilight: boolean
+  wifiReset: boolean
+}
+
+const isBle = import.meta.env.VITE_TRANSPORT === 'ble'
+
+export const capabilities: TransportCapabilities = isBle
+  ? { presets: false, stripConfig: false, ambilight: false, wifiReset: false }
+  : { presets: true, stripConfig: true, ambilight: true, wifiReset: true }
+
+export const TRANSPORT: 'wifi' | 'ble' = isBle ? 'ble' : 'wifi'
+```
+
+- [ ] **Step 2: Wire transport selection into `useLedState.ts`**
+
+At the top of `web/src/hooks/useLedState.ts`, change:
+
+```ts
+import { useState, useCallback } from 'react'
+import { useWebSocket } from './useWebSocket'
+```
+
+to:
+
+```ts
+import { useState, useCallback } from 'react'
+import { useWebSocket } from './useWebSocket'
+import { useBluetoothTransport } from './useBluetoothTransport'
+import { TRANSPORT } from '@/lib/capabilities'
+```
+
+Then, inside `useLedState`, replace:
+
+```ts
+  const { send, status } = useWebSocket(wsUrl, onMessage)
+```
+
+with:
+
+```ts
+  // TRANSPORT is a build-time constant (Vite inlines import.meta.env and
+  // dead-code-eliminates the unused branch), so exactly one of these two
+  // hooks ever actually runs for a given bundle.
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const { send, status, connect, error } = TRANSPORT === 'ble'
+    ? useBluetoothTransport(onMessage)
+    : { ...useWebSocket(wsUrl, onMessage), error: null as string | null }
+```
+
+And finally, change the return statement from:
+
+```ts
+  return { state, update, status, scanProgress, foundTvs, send }
+```
+
+to:
+
+```ts
+  return { state, update, status, scanProgress, foundTvs, send, connect, error }
+```
+
+- [ ] **Step 3: Verify it builds**
+
+Run (from `web/`):
+```bash
+npx tsc -b --noEmit
+```
+Expected: no errors.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add web/src/lib/capabilities.ts web/src/hooks/useLedState.ts
+git commit -m "feat: select WS/BLE transport via VITE_TRANSPORT build flag"
+```
+
+---
+
+### Task 8: BLE connect dialog + `App.tsx` gating
+
+**Files:**
+- Create: `web/src/components/shared/BleConnectDialog.tsx`
+- Modify: `web/src/App.tsx`
+- Modify: `web/src/i18n/en.json`, `web/src/i18n/pl.json` (add `ble` keys)
+
+**Interfaces:**
+- Consumes: `TRANSPORT` from `@/lib/capabilities` (Task 7), `WsStatus` type, `useLedState`'s new `connect`/`error` fields.
+- Produces: `BleConnectDialog` component, gating logic in `App.tsx` (only reached when `TRANSPORT === 'ble'`).
+
+- [ ] **Step 1: Add i18n strings**
+
+In `web/src/i18n/en.json`, add a new top-level key (after `"ambilight"`):
+
+```json
+  "ambilight": { "status": "Status", "polling": "Polling", "idle": "Idle", "error": "Error" },
+  "ble": {
+    "title": "Connect to MilaLED",
+    "description": "Pair with your strip over Bluetooth to control it without joining its WiFi network.",
+    "connect": "Connect via Bluetooth",
+    "connecting": "Connecting…",
+    "unsupported": "This browser doesn't support Web Bluetooth. Use Chrome on Android, or the Bluefy app on iOS."
+  }
+```
+
+In `web/src/i18n/pl.json`, add the matching key (after `"ambilight"`):
+
+```json
+  "ambilight": { "status": "Status", "polling": "Pobieranie", "idle": "Bezczynny", "error": "Błąd" },
+  "ble": {
+    "title": "Połącz z MilaLED",
+    "description": "Sparuj się z taśmą przez Bluetooth, aby sterować nią bez łączenia się z jej siecią WiFi.",
+    "connect": "Połącz przez Bluetooth",
+    "connecting": "Łączenie…",
+    "unsupported": "Ta przeglądarka nie obsługuje Web Bluetooth. Użyj Chrome na Androidzie lub aplikacji Bluefy na iOS."
+  }
+```
+
+- [ ] **Step 2: Create `BleConnectDialog.tsx`**
+
+```tsx
+import { useTranslation } from 'react-i18next'
+import type { WsStatus } from '@/hooks/useWebSocket'
+
+interface Props {
+  status: WsStatus
+  error: string | null
+  onConnect: () => void
+}
+
+export function BleConnectDialog({ status, error, onConnect }: Props) {
+  const { t } = useTranslation()
+  const supported = typeof navigator !== 'undefined' && 'bluetooth' in navigator
+
+  return (
+    <div className="min-h-[100dvh] flex flex-col items-center justify-center gap-4 bg-background p-6 text-center">
+      <h1 className="text-lg font-semibold text-zinc-100">{t('ble.title')}</h1>
+      {!supported ? (
+        <p className="text-sm text-zinc-400 max-w-xs">{t('ble.unsupported')}</p>
+      ) : (
+        <>
+          <p className="text-sm text-zinc-400 max-w-xs">{t('ble.description')}</p>
+          <button
+            onClick={onConnect}
+            disabled={status === 'connecting'}
+            className="px-6 py-3 rounded-xl bg-amber-400 hover:bg-amber-300 text-zinc-950 font-semibold disabled:opacity-50 transition-colors"
+          >
+            {status === 'connecting' ? t('ble.connecting') : t('ble.connect')}
+          </button>
+          {error && <p className="text-sm text-red-400 max-w-xs">{error}</p>}
+        </>
+      )}
+    </div>
+  )
+}
+```
+
+- [ ] **Step 3: Gate `App.tsx` on connection status**
+
+In `web/src/App.tsx`, add imports:
+
+```tsx
+import { BleConnectDialog } from '@/components/shared/BleConnectDialog'
+import { TRANSPORT } from '@/lib/capabilities'
+```
+
+Change the destructuring from:
+
+```tsx
+  const { state, update, status, scanProgress, foundTvs } = useLedState(WS_URL)
+```
+
+to:
+
+```tsx
+  const { state, update, status, scanProgress, foundTvs, connect, error } = useLedState(WS_URL)
+```
+
+Immediately after the `useEffect` that toggles the dark-mode class (before the `return (` of the main UI), add:
+
+```tsx
+  if (TRANSPORT === 'ble' && status !== 'open') {
+    return <BleConnectDialog status={status} error={error} onConnect={connect} />
+  }
+```
+
+- [ ] **Step 4: Verify it builds**
+
+Run (from `web/`):
+```bash
+npx tsc -b --noEmit
+```
+Expected: no errors.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add web/src/components/shared/BleConnectDialog.tsx web/src/App.tsx web/src/i18n/en.json web/src/i18n/pl.json
+git commit -m "feat: add BLE connect dialog, gate App on connection status"
+```
+
+---
+
+### Task 9: Hide out-of-scope tabs/sections in the BLE build
+
+**Files:**
+- Modify: `web/src/components/layout/TabBar.tsx`
+- Modify: `web/src/components/tabs/SettingsTab.tsx`
+
+**Interfaces:**
+- Consumes: `capabilities` from `@/lib/capabilities` (Task 7).
+
+- [ ] **Step 1: Hide the Presets tab when unsupported**
+
+Replace the full contents of `web/src/components/layout/TabBar.tsx` with:
+
+```tsx
+import { useTranslation } from 'react-i18next'
+import { Lightning, PaintBrush, FloppyDisk, GearSix } from '@phosphor-icons/react'
+import { capabilities } from '@/lib/capabilities'
+
+const TABS = [
+  { id: 'effects',  Icon: Lightning,  labelKey: 'tabs.effects' },
+  { id: 'color',    Icon: PaintBrush, labelKey: 'tabs.color' },
+  { id: 'presets',  Icon: FloppyDisk, labelKey: 'tabs.presets' },
+  { id: 'settings', Icon: GearSix,    labelKey: 'tabs.settings' },
+] as const
+
+export type TabId = typeof TABS[number]['id']
+
+interface Props {
+  active: TabId
+  onSelect: (id: TabId) => void
+}
+
+export function TabBar({ active, onSelect }: Props) {
+  const { t } = useTranslation()
+  const visibleTabs = TABS.filter(tab => tab.id !== 'presets' || capabilities.presets)
+
+  return (
+    <nav className="fixed bottom-0 left-0 right-0 bg-zinc-950/95 backdrop-blur border-t border-zinc-800 pb-4 z-10">
+      <div className={visibleTabs.length === 4 ? 'grid grid-cols-4' : 'grid grid-cols-3'}>
+        {visibleTabs.map(({ id, Icon, labelKey }) => {
+          const isActive = active === id
+          return (
+            <button
+              key={id}
+              onClick={() => onSelect(id)}
+              className={`flex flex-col items-center gap-1 py-3 transition-colors active:scale-95 ${
+                isActive ? 'text-amber-400' : 'text-zinc-500 hover:text-zinc-300'
+              }`}
+            >
+              <Icon size={22} weight={isActive ? 'fill' : 'regular'} />
+              <span className="text-[10px] font-medium">{t(labelKey)}</span>
+            </button>
+          )
+        })}
+      </div>
+    </nav>
+  )
+}
+```
+
+(Both `grid-cols-4` and `grid-cols-3` are written as literal strings so Tailwind's static class scanner picks up both — a template-interpolated class name like `` `grid-cols-${n}` `` would not be detected.)
+
+- [ ] **Step 2: Gate Strip/Network/Ambilight sections in `SettingsTab.tsx`**
+
+In `web/src/components/tabs/SettingsTab.tsx`, add an import:
+
+```tsx
+import { capabilities } from '@/lib/capabilities'
+```
+
+Wrap the **Strip** section — currently:
+
+```tsx
+      {/* Strip */}
+      <section className="space-y-2">
+        ...
+      </section>
+```
+
+(lines 132-299 in the current file, from the `{/* Strip */}` comment through its closing `</section>` right before the `{/* Network */}` comment) — in a capability check:
+
+```tsx
+      {capabilities.stripConfig && (
+      <section className="space-y-2">
+        {/* Strip */}
+        ...
+      </section>
+      )}
+```
+
+Concretely: insert `{capabilities.stripConfig && (` on the line immediately before `<section className="space-y-2">` that precedes the `{/* Strip */}` comment (i.e. before current line 133), and insert `)}` on its own line immediately after that section's closing `</section>` (current line 299).
+
+Wrap the **Network** section (current lines 301-348, from `{/* Network */}` through its `</section>`) the same way, using `capabilities.wifiReset`:
+
+```tsx
+      {capabilities.wifiReset && (
+      <section className="space-y-2">
+        {/* Network */}
+        ...
+      </section>
+      )}
+```
+
+Wrap the **Ambilight** section (current lines 350-441, from `{/* Ambilight */}` through its `</section>`) the same way, using `capabilities.ambilight`:
+
+```tsx
+      {capabilities.ambilight && (
+      <section className="space-y-2">
+        {/* Ambilight */}
+        ...
+      </section>
+      )}
+```
+
+Leave the **Language** section (current lines 443-463) and **Firmware version** section (current lines 465-474) untouched — both are relevant regardless of transport.
+
+- [ ] **Step 3: Verify it builds**
+
+Run (from `web/`):
+```bash
+npx tsc -b --noEmit
+```
+Expected: no errors (in particular, no unbalanced-JSX errors from the added wrapping parens/braces).
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add web/src/components/layout/TabBar.tsx web/src/components/tabs/SettingsTab.tsx
+git commit -m "feat: hide presets/strip-config/ambilight/wifi-reset in BLE build"
+```
+
+---
+
+### Task 10: `build:ble` script + Vite mode
+
+**Files:**
+- Create: `web/.env.ble`
+- Modify: `web/package.json` (scripts)
+
+**Interfaces:**
+- Produces: `npm run build:ble` in `web/`, outputting to `web/dist-ble/` with `VITE_TRANSPORT=ble` baked in. Consumed by Task 11 (GitHub Actions workflow).
+
+- [ ] **Step 1: Create the mode-specific env file**
+
+```
+VITE_TRANSPORT=ble
+```
+
+Save as `web/.env.ble`. Vite automatically loads `.env.<mode>` files when built with `--mode <mode>`.
+
+- [ ] **Step 2: Add the build script**
+
+In `web/package.json`, change the `scripts` block from:
+
+```json
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "lint": "eslint .",
+    "preview": "vite preview"
+  },
+```
+
+to:
+
+```json
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "build:ble": "tsc -b && vite build --mode ble --outDir dist-ble",
+    "lint": "eslint .",
+    "preview": "vite preview"
+  },
+```
+
+`scripts/build_web.py` (the firmware-embedding pipeline) is untouched — it calls `npm run build`, which still produces the unchanged WiFi bundle in `web/dist/`.
+
+- [ ] **Step 3: Verify the BLE bundle builds cleanly**
+
+Run (from `web/`):
+```bash
+npm run build:ble
+```
+Expected: succeeds, produces `web/dist-ble/index.html` and assets. Manually open `web/dist-ble/index.html` in a text editor (or grep) to confirm it references the same JS bundle structure as `web/dist/` — i.e. it's a real Vite build output, not an error page.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add web/.env.ble web/package.json
+git commit -m "feat: add build:ble script producing a Web-Bluetooth-only bundle"
+```
+
+---
+
+### Task 11: GitHub Actions — deploy BLE build to GitHub Pages
+
+**Files:**
+- Create: `.github/workflows/deploy-ble-pages.yml`
+
+**Interfaces:**
+- Consumes: `npm run build:ble` (Task 10), outputting `web/dist-ble`.
+
+- [ ] **Step 1: Create the workflow**
+
+```yaml
+name: Deploy BLE control page to GitHub Pages
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'web/**'
+      - '.github/workflows/deploy-ble-pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+        working-directory: web
+      - name: Build BLE bundle
+        run: npm run build:ble
+        working-directory: web
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web/dist-ble
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+```
+
+- [ ] **Step 2: One-time repo setting (manual, not part of this commit)**
+
+In the GitHub repo's Settings → Pages, set **Source** to "GitHub Actions" (instead of a branch). This can't be done from a commit — note it for whoever merges this, and confirm it's done before relying on the deployed URL.
+
+- [ ] **Step 3: Verify the workflow YAML is well-formed**
+
+Run:
+```bash
+python -c "import yaml,sys; yaml.safe_load(open('.github/workflows/deploy-ble-pages.yml'))" && echo OK
+```
+Expected: `OK`. (This only validates YAML syntax — actual execution can only be confirmed by pushing and watching the Actions tab, which is a `git push` and thus outside this plan's scope; flag it to the user before pushing.)
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add .github/workflows/deploy-ble-pages.yml
+git commit -m "ci: deploy BLE web UI build to GitHub Pages"
+```
+
+---
+
+### Task 12: Manual end-to-end hardware verification
+
+This task has no code changes — it's a checklist to run against real hardware once Tasks 1-11 are merged, since BLE/GATT behavior can't be verified in CI or this sandbox. Not a substitute for Tasks 1-11's own compile/build verification — this is the final functional check.
+
+- [ ] **Step 1: Flash and boot**
+
+```bash
+pio run -e esp32dev --target uploadfs
+pio run -e esp32dev --target upload
+pio device monitor
+```
+Expected serial output includes `[ble]   starting BLE server...` right after the WiFi connection lines.
+
+- [ ] **Step 2: Confirm the device is discoverable**
+
+Using nRF Connect (Android/iOS) or a similar BLE scanner, scan for "MilaLED". Confirm the custom service `7a2eec00-...` appears with the two characteristics (`7a2eec01-...` write, `7a2eec02-...` notify).
+
+- [ ] **Step 3: Deploy and test the GitHub Pages BLE UI**
+
+After Task 11's workflow has run once (requires the repo's Pages source set to "GitHub Actions" per Task 11 Step 2), open the deployed URL on:
+- **Android Chrome:** tap "Connect via Bluetooth", pick "MilaLED" from the picker, confirm the UI unlocks and mirrors the strip's current state (power/effect/brightness/etc.).
+- **iOS Bluefy:** same flow — this is the harder case since Bluefy is a third-party WebKit wrapper; note any quirks.
+
+- [ ] **Step 4: Verify core controls work over BLE**
+
+Toggle power, change effect, drag the brightness/speed/intensity sliders, change primary/secondary color, change palette. Confirm the physical strip responds within roughly the same latency as the WiFi UI.
+
+- [ ] **Step 5: Verify cross-channel sync**
+
+With the WiFi-served page open in one browser tab and the GitHub Pages BLE page connected in another, change the effect from the WiFi tab and confirm the BLE tab's UI updates to match (and vice versa) — this exercises the Task 4 cross-notify wiring.
+
+- [ ] **Step 6: Verify hidden tabs**
+
+Confirm the BLE-connected UI shows only Effects/Color/Settings (no Presets tab), and that Settings shows only Language + Firmware version (no Strip/Network/Ambilight sections).
+
+- [ ] **Step 7: Verify disconnect/reconnect**
+
+Move the phone out of range (or toggle its Bluetooth off), confirm the UI falls back to the connect dialog, then reconnect and confirm control resumes.
+
+- [ ] **Step 8: Regression-check the WiFi build**
+
+Open the device's own WiFi-served page as before and confirm nothing changed — all four tabs present, all existing functionality (presets, strip reconfig+reboot, Ambilight scan, WiFi reset) working as it did before this feature was added.
+
+No commit for this task — if any step surfaces a bug, fix it in the relevant earlier task's files and re-run that task's own verification step before returning here.
