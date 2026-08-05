@@ -1,6 +1,6 @@
 # MilaLED
 
-ESP8266 / ESP32 Wi-Fi LED strip controller with a modern mobile-first web interface. Control your WS2815 (or compatible) LED strip from any device on your network — no app required.
+ESP8266 / ESP32 LED strip controller with a modern mobile-first web interface. Control your WS2815 (or compatible) LED strip over Wi-Fi from any device on your network, or over Bluetooth LE (ESP32 only) without joining the network at all — no app required.
 
 **Works with:** WS2811, WS2812B, WS2815, WS2813, SK6812 | RGB, GRB, and more
 
@@ -29,6 +29,7 @@ ESP8266 / ESP32 Wi-Fi LED strip controller with a modern mobile-first web interf
 - **Philips Ambilight integration** — mirror your Philips TV's ambient lighting (zero-latency HTTP polling)
 - **Hyperion/HyperHDR support** — WLED-compatible UDP streaming (DDP + RAW, ports 4048 + 19446)
 - **Network scanner** — automatically discover Philips TVs on your LAN
+- **Bluetooth LE control (ESP32)** — an always-on second control channel; pair directly from a phone browser via the [hosted control page](https://im-tesla.github.io/MilaLED/), no Wi-Fi network needed
 - **Multi-segment strip support** — up to 4 segments with configurable LED counts and half-density skipping
 - **Configurable color order** — RGB, GRB, BRG — match whatever your strip expects
 - **Configurable chipset** — WS2811, WS2812B, WS2815, WS2813, SK6812
@@ -40,11 +41,13 @@ ESP8266 / ESP32 Wi-Fi LED strip controller with a modern mobile-first web interf
 
 ## Supported boards
 
-| Platform | Boards | RAM | Flash |
-|----------|--------|-----|-------|
-| **ESP8266** | ESP-12E, NodeMCU, Wemos D1 mini, Adafruit HUZZAH | 80 KB | 2-4 MB |
-| **ESP32** | ESP32 DevKit, NodeMCU-32S, ESP32-S3, ESP32-C6 | 320-520 KB | 4-16 MB |
-| **ESP32-C3** | LOLIN C3 Mini, ESP32-C3 Super Mini | 320 KB | 4 MB |
+| Platform | Boards | RAM | Flash | Bluetooth |
+|----------|--------|-----|-------|-----------|
+| **ESP8266** | ESP-12E, NodeMCU, Wemos D1 mini, Adafruit HUZZAH | 80 KB | 2-4 MB | — |
+| **ESP32** | ESP32 DevKit, NodeMCU-32S, ESP32-S3, ESP32-C6 | 320-520 KB | 4-16 MB | ✓ |
+| **ESP32-C3** | LOLIN C3 Mini, ESP32-C3 Super Mini | 320 KB | 4 MB | ✓ |
+
+ESP8266 has no Bluetooth radio, so BLE control is ESP32-only. Wi-Fi control works identically on every board above.
 
 Virtually any ESP8266 with ≥2MB flash or any ESP32 with ≥4MB flash works. See `platformio.ini` for pre-configured environments — just uncomment your board.
 
@@ -110,6 +113,15 @@ pio run --target upload
 
 On first boot, the board creates a Wi-Fi hotspot called **MilaLED**. Connect to it, open a browser, and follow the captive portal to connect to your home network. Once connected, go to `http://milaled.local` (or the IP shown in settings).
 
+### 6. Bluetooth control (ESP32 only)
+
+ESP32 boards also advertise a Bluetooth LE control service alongside Wi-Fi, always on by default — no need to join the network at all.
+
+- **Hosted control page:** open **https://im-tesla.github.io/MilaLED/** on Chrome (Android) or the [Bluefy](https://apps.apple.com/app/bluefy-web-ble-browser/id1492822055) app (iOS — Safari itself doesn't support Web Bluetooth) and tap **Connect via Bluetooth**.
+- **Disable it:** toggle **Bluetooth control** off in Settings → Strip if you'd rather the radio not always be advertising, or to free up radio time if you're streaming Hyperion over Wi-Fi and notice jitter.
+
+v1 Bluetooth scope covers live control — power, effects, palette, brightness, speed, intensity, colors, and segment display. Presets, strip reconfiguration, Ambilight scan, and Wi-Fi reset stay Wi-Fi-only for now.
+
 ## Development
 
 ```bash
@@ -128,16 +140,17 @@ pio device monitor          # serial output (115200 baud)
 ├── src/              # Arduino firmware
 │   ├── config/       # ConfigStore (LittleFS JSON)
 │   ├── leds/         # EffectsEngine + 17 effects
-│   ├── net/          # HTTP + WebSocket server
+│   ├── net/          # HTTP + WebSocket server + BLE GATT server (ESP32)
 │   └── wifi/         # WiFi Manager + mDNS
 ├── web/              # React 18 + Vite + Tailwind UI
 │   └── src/
 │       ├── components/  # tabs, layout, shared, ui
-│       ├── hooks/       # useLedState, useWebSocket
+│       ├── hooks/       # useLedState, useWebSocket, useBluetoothTransport
 │       └── i18n/        # English, Polish
 ├── data/             # gzipped web build (uploaded to ESP)
 ├── scripts/          # build_web.py
 ├── test/             # native unit tests
+├── .github/workflows/ # deploys the Bluetooth control page to GitHub Pages
 └── platformio.ini
 ```
 
@@ -156,6 +169,18 @@ pio device monitor          # serial output (115200 baud)
 | `/json` | GET/POST | Combined state+info (Hyperion discovery) |
 
 WebSocket commands are simple JSON: `{"power": true}`, `{"brightness": 180}`, `{"effect": "fire2012"}`, etc. The ESP broadcasts full state to all connected clients on connect and after any discrete change.
+
+### Bluetooth LE (ESP32 only)
+
+Alongside the endpoints above, ESP32 boards expose a custom GATT service for control without Wi-Fi:
+
+| | UUID |
+|---|---|
+| Service | `7a2eec00-4b0f-4bde-9f3f-1a7c6d9b2e10` |
+| Command characteristic (write) | `7a2eec01-4b0f-4bde-9f3f-1a7c6d9b2e10` |
+| State characteristic (notify) | `7a2eec02-4b0f-4bde-9f3f-1a7c6d9b2e10` |
+
+Both characteristics carry the same JSON shape as the WebSocket API (restricted to the v1 core-control fields), chunked into `[seq: uint8][more: uint8][...JSON bytes]` frames — `seq == 0` starts a new message, `more == 0` marks the last chunk — since a single BLE packet is too small to carry a full state update. The [hosted control page](https://im-tesla.github.io/MilaLED/) ([source](web/src/hooks/useBluetoothTransport.ts)) is the reference client; the firmware side lives in [`src/net/BleServer.cpp`](src/net/BleServer.cpp).
 
 ### Hyperion / HyperHDR
 
