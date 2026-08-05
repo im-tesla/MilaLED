@@ -30,7 +30,8 @@ private:
     MilaWebServer*  _web    = nullptr;
     NimBLECharacteristic* _stateChar = nullptr;
 
-    String _rxBuffer; // NimBLE task only — no cross-task access
+    String _rxBuffer;          // NimBLE task only — no cross-task access
+    bool   _rxDesynced = false; // NimBLE task only — true after an overflow drop, until the next seq==0
 
     // Shared between the NimBLE task (writer) and loop() (reader/clearer);
     // all access must happen under _mux.

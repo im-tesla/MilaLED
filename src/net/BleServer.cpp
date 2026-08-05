@@ -2,6 +2,7 @@
 #ifdef ESP32
 #include <ArduinoJson.h>
 #include <cstring>
+#include <utility>
 #include "CoreParamRouter.h"
 #include "WebServer.h"
 #include "../version.h"
@@ -66,10 +67,16 @@ void BleServer::onCommandChunk(const uint8_t* data, size_t len) {
     uint8_t seq  = data[0];
     uint8_t more = data[1];
 
-    if (seq == 0) _rxBuffer = "";
+    if (seq == 0) {
+        _rxBuffer = "";
+        _rxDesynced = false;
+    }
+
+    if (_rxDesynced) return; // still waiting for a fresh seq==0 after an earlier overflow drop
 
     if (_rxBuffer.length() + (len - 2) > MAX_RX_COMMAND_SIZE) {
-        _rxBuffer = ""; // runaway/oversized frame train — drop it, wait for the next seq==0
+        _rxBuffer = "";
+        _rxDesynced = true; // ignore stray continuation chunks from this aborted train
         return;
     }
     _rxBuffer.concat(reinterpret_cast<const char*>(data + 2), len - 2);
@@ -78,8 +85,9 @@ void BleServer::onCommandChunk(const uint8_t* data, size_t len) {
         // Hand the completed JSON off to the main loop instead of applying it
         // here — this callback runs on the NimBLE host task, and Config/
         // EffectsEngine must only be touched from the single-threaded loop().
+        // std::move avoids an allocating copy while the critical section is held.
         portENTER_CRITICAL(&_mux);
-        _pendingCommand = _rxBuffer;
+        _pendingCommand = std::move(_rxBuffer);
         _cmdPending = true;
         portEXIT_CRITICAL(&_mux);
         _rxBuffer = "";
@@ -92,7 +100,7 @@ void BleServer::loop() {
 
     portENTER_CRITICAL(&_mux);
     if (_cmdPending) {
-        cmd = _pendingCommand;
+        cmd = std::move(_pendingCommand);
         _cmdPending = false;
         hasCmd = true;
     }
