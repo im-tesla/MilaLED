@@ -8,6 +8,7 @@ class BleServer;
 using WebServerClass = ESP8266WebServer;
 #endif
 #include <WebSocketsServer.h>
+#include <FS.h>
 #include "../config/ConfigStore.h"
 #include "../leds/EffectsEngine.h"
 
@@ -40,4 +41,5 @@ private:
     void handleWsMessage(const char* json);
     void handleRestPresets();
     String buildStateJson();
+    void streamRobust(File& f, const String& contentType, bool gzip);
 };

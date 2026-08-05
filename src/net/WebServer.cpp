@@ -18,11 +18,10 @@ void MilaWebServer::begin(Config* cfg, ConfigStore* store, EffectsEngine* engine
     _cfg = cfg; _store = store; _engine = engine;
 
     // Serve gzipped React app.
-    // streamFile() auto-adds Content-Encoding: gzip when filename ends in .gz — no manual header needed.
     _http.on("/", HTTP_GET, [this]() {
         File f = LittleFS.open("/index.html.gz", "r");
         if (!f) { _http.send(404, "text/plain", "Not found"); return; }
-        _http.streamFile(f, "text/html");
+        streamRobust(f, "text/html", true);
         f.close();
     });
 
@@ -139,19 +138,17 @@ void MilaWebServer::begin(Config* cfg, ConfigStore* store, EffectsEngine* engine
             if (path.endsWith(".svg"))   contentType = "image/svg+xml";
             if (path.endsWith(".woff2")) contentType = "font/woff2";
             if (path.endsWith(".html"))  contentType = "text/html";
-            // streamFile auto-adds Content-Encoding: gzip for .gz files (unless type is
-            // application/octet-stream or application/x-gzip, so we never use those).
-            _http.streamFile(f, contentType);
+            streamRobust(f, contentType, true);
             f.close();
         } else if (LittleFS.exists(path)) {
             File f = LittleFS.open(path, "r");
-            _http.streamFile(f, "text/plain");
+            streamRobust(f, "text/plain", false);
             f.close();
         } else {
             // SPA fallback: serve index.html for any unknown path (client-side routing).
             File f = LittleFS.open("/index.html.gz", "r");
             if (f) {
-                _http.streamFile(f, "text/html");
+                streamRobust(f, "text/html", true);
                 f.close();
             } else {
                 _http.send(404, "text/plain", "Not found");
@@ -324,6 +321,51 @@ void MilaWebServer::broadcastScanProgress(uint8_t pct, const char* msg) {
     String out;
     serializeJson(doc, out);
     _ws.broadcastTXT(out.c_str());
+}
+
+void MilaWebServer::streamRobust(File& f, const String& contentType, bool gzip) {
+#ifdef ESP32
+    // The ESP32 Arduino core's WiFiClient::write(Stream&) (used internally by
+    // streamFile()) doesn't verify that each internal chunk write fully
+    // completes — under a weak/congested Wi-Fi link it can silently send
+    // fewer bytes than the Content-Length header already promised, and
+    // Chrome reports ERR_CONTENT_LENGTH_MISMATCH (the page then fails to
+    // load or hangs). This loop retries a short write instead of moving on
+    // to the next chunk, so either the full file gets sent or the
+    // connection is dropped early — a clean error — rather than a
+    // truncated 200 OK.
+    size_t fileSize = f.size();
+    _http.setContentLength(fileSize);
+    if (gzip) _http.sendHeader("Content-Encoding", "gzip");
+    _http.send(200, contentType, "");
+
+    WiFiClient client = _http.client();
+    uint8_t buf[1024];
+    size_t remaining = fileSize;
+    while (remaining > 0 && client.connected()) {
+        size_t toRead = remaining < sizeof(buf) ? remaining : sizeof(buf);
+        size_t bytesRead = f.read(buf, toRead);
+        if (bytesRead == 0) break; // unexpected EOF
+
+        size_t sent = 0;
+        uint8_t retries = 50;
+        while (sent < bytesRead && retries > 0) {
+            size_t n = client.write(buf + sent, bytesRead - sent);
+            if (n > 0) {
+                sent += n;
+            } else {
+                retries--;
+                delay(10); // let a congested/weak Wi-Fi link drain before retrying
+            }
+        }
+        if (sent < bytesRead) { client.stop(); return; } // couldn't fully send — abort cleanly
+        remaining -= bytesRead;
+    }
+#else
+    // ESP8266 core's send path (StreamSend's sendSize) already retries
+    // correctly on partial writes, so the framework's streamFile() is safe here.
+    _http.streamFile(f, contentType);
+#endif
 }
 
 void MilaWebServer::handleWsEvent(uint8_t num, WStype_t type, uint8_t* payload, size_t len) {
