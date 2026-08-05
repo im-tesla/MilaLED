@@ -85,10 +85,16 @@ void BleServer::onCommandChunk(const uint8_t* data, size_t len) {
         // Hand the completed JSON off to the main loop instead of applying it
         // here — this callback runs on the NimBLE host task, and Config/
         // EffectsEngine must only be touched from the single-threaded loop().
-        // std::move avoids an allocating copy while the critical section is held.
         portENTER_CRITICAL(&_mux);
-        _pendingCommand = std::move(_rxBuffer);
-        _cmdPending = true;
+        if (!_cmdPending) {
+            // Only assign when the mailbox is empty: _pendingCommand then holds
+            // no live heap buffer, so std::move always takes Arduino String's
+            // zero-cost pointer-steal path, never its memmove+free reuse path.
+            // If a previous command is still undrained, drop this new one
+            // rather than risk that heap work while the critical section is held.
+            _pendingCommand = std::move(_rxBuffer);
+            _cmdPending = true;
+        }
         portEXIT_CRITICAL(&_mux);
         _rxBuffer = "";
     }
