@@ -21,6 +21,7 @@
 - v1 BLE-writable fields: `power`, `brightness`, `effect`, `speed`, `intensity`, `colorPrimary`, `colorSecondary`, `palette`. v1 BLE state (read-only) additionally includes: `virtualLeds`, `segments`, `version`.
 - Out of scope for v1 (per design spec): presets CRUD, strip reconfiguration (pin/chipset/segments+reboot), Ambilight TV scan, WiFi reset. These stay WiFi/WS-only; the BLE frontend build hides their tabs/sections entirely.
 - No new automated test framework is introduced for the frontend (none exists today — no vitest/jest in `web/package.json`). Firmware verification is compile-only (`pio run -e <env>`) since there's no hardware-in-the-loop test harness in this repo (only `PixelMapper` has a native unit test, and it's pure logic — BLE/GATT code isn't). Final functional verification is manual, on real hardware (Task 12).
+- Added during Task 3 review: `BleServer`'s command reassembly buffer is capped at `MAX_RX_COMMAND_SIZE = 512` bytes (a client that never sends a terminating chunk gets dropped, not an unbounded heap grow), and `onCommandChunk` (NimBLE host task) never mutates `Config`/`EffectsEngine` directly — it hands the completed JSON to a `portMUX_TYPE`-guarded pending-command slot that `BleServer::loop()` (called from the main Arduino loop, single-threaded, added in Task 4) drains and applies. This keeps all `Config`/`EffectsEngine` access on the same task as the rest of the codebase's WS/Hyperion/Ambilight handling.
 
 ---
 
@@ -280,9 +281,15 @@ public:
     void notifyState();
     void setWebServer(MilaWebServer* web) { _web = web; }
 
-    // Called by the command characteristic's write callback with one raw
-    // chunk: [seq][more][...JSON bytes].
+    // Called by the command characteristic's write callback (runs on the
+    // NimBLE host task) with one raw chunk: [seq][more][...JSON bytes].
     void onCommandChunk(const uint8_t* data, size_t len);
+
+    // Call every main-loop iteration: drains a fully-reassembled command
+    // (handed off from the NimBLE task under a critical section) and applies
+    // it from the single-threaded main-loop context, so Config/EffectsEngine
+    // are never mutated from two tasks at once.
+    void loop();
 
 private:
     Config*         _cfg    = nullptr;
@@ -290,7 +297,14 @@ private:
     EffectsEngine*  _engine = nullptr;
     MilaWebServer*  _web    = nullptr;
     NimBLECharacteristic* _stateChar = nullptr;
-    String _rxBuffer;
+
+    String _rxBuffer; // NimBLE task only — no cross-task access
+
+    // Shared between the NimBLE task (writer) and loop() (reader/clearer);
+    // all access must happen under _mux.
+    String       _pendingCommand;
+    bool         _cmdPending = false;
+    portMUX_TYPE _mux = portMUX_INITIALIZER_UNLOCKED;
 
     void handleCommand(const char* json);
     String buildCoreStateJson();
@@ -314,6 +328,11 @@ namespace {
     const char* CMD_CHAR_UUID   = "7a2eec01-4b0f-4bde-9f3f-1a7c6d9b2e10";
     const char* STATE_CHAR_UUID = "7a2eec02-4b0f-4bde-9f3f-1a7c6d9b2e10";
     const size_t CHUNK_PAYLOAD  = 100; // keep in sync with CHUNK_PAYLOAD in useBluetoothTransport.ts
+
+    // Reassembly cap: comfortably above the 256-byte StaticJsonDocument budget
+    // handleCommand() parses into, so a client that never sends a terminating
+    // chunk can't grow _rxBuffer without bound.
+    const size_t MAX_RX_COMMAND_SIZE = 512;
 
     class ServerCallbacks : public NimBLEServerCallbacks {
     public:
@@ -365,12 +384,38 @@ void BleServer::onCommandChunk(const uint8_t* data, size_t len) {
     uint8_t more = data[1];
 
     if (seq == 0) _rxBuffer = "";
+
+    if (_rxBuffer.length() + (len - 2) > MAX_RX_COMMAND_SIZE) {
+        _rxBuffer = ""; // runaway/oversized frame train — drop it, wait for the next seq==0
+        return;
+    }
     _rxBuffer.concat(reinterpret_cast<const char*>(data + 2), len - 2);
 
     if (!more) {
-        handleCommand(_rxBuffer.c_str());
+        // Hand the completed JSON off to the main loop instead of applying it
+        // here — this callback runs on the NimBLE host task, and Config/
+        // EffectsEngine must only be touched from the single-threaded loop().
+        portENTER_CRITICAL(&_mux);
+        _pendingCommand = _rxBuffer;
+        _cmdPending = true;
+        portEXIT_CRITICAL(&_mux);
         _rxBuffer = "";
     }
+}
+
+void BleServer::loop() {
+    String cmd;
+    bool hasCmd = false;
+
+    portENTER_CRITICAL(&_mux);
+    if (_cmdPending) {
+        cmd = _pendingCommand;
+        _cmdPending = false;
+        hasCmd = true;
+    }
+    portEXIT_CRITICAL(&_mux);
+
+    if (hasCmd) handleCommand(cmd.c_str());
 }
 
 void BleServer::handleCommand(const char* json) {
@@ -618,7 +663,15 @@ In `setup()`, right after the existing `webServer.begin(&cfg, &cfgStore, &engine
 #endif
 ```
 
-No `loop()` changes are needed — NimBLE-Arduino runs its GATT/advertising handling on its own FreeRTOS task; there's no polling call to add.
+In `loop()`, right after the existing `webServer.loop();` line, add:
+
+```cpp
+#ifdef ESP32
+    bleServer.loop(); // drains any command reassembled on the NimBLE task and applies it here
+#endif
+```
+
+This call is safe even when `cfg.bleEnabled` is false (BLE never started) — `BleServer::loop()` just checks its internal `_cmdPending` flag, which stays false if `begin()` was never called. NimBLE-Arduino's own GATT/advertising handling still runs on its own FreeRTOS task and needs no polling — this call only drains the command hand-off added in Task 3 to keep `Config`/`EffectsEngine` mutation on the single-threaded main loop.
 
 - [ ] **Step 4: Verify compilation on both platforms**
 
