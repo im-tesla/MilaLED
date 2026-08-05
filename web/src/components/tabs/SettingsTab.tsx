@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { WifiHigh, MagnifyingGlass, ArrowCounterClockwise, Stop, Plus, Trash } from '@phosphor-icons/react'
 import { AmbilightStatus } from '@/components/shared/AmbilightStatus'
+import { capabilities } from '@/lib/capabilities'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -130,6 +131,7 @@ export function SettingsTab({ state, update, scanProgress, foundTvs }: Props) {
     <div className="space-y-5">
 
       {/* Strip */}
+      {capabilities.stripConfig && (
       <section className="space-y-2">
         <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">
           {t('settings.strip')}
@@ -297,8 +299,10 @@ export function SettingsTab({ state, update, scanProgress, foundTvs }: Props) {
           </Button>
         </div>
       </section>
+      )}
 
       {/* Network */}
+      {capabilities.wifiReset && (
       <section className="space-y-2">
         <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">
           {t('settings.network')}
@@ -346,8 +350,10 @@ export function SettingsTab({ state, update, scanProgress, foundTvs }: Props) {
           </div>
         </div>
       </section>
+      )}
 
       {/* Ambilight */}
+      {capabilities.ambilight && (
       <section className="space-y-2">
         <div className="flex items-center justify-between">
           <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">
@@ -439,6 +445,7 @@ export function SettingsTab({ state, update, scanProgress, foundTvs }: Props) {
           </Select>
         </div>
       </section>
+      )}
 
       {/* Language */}
       <section className="space-y-2">

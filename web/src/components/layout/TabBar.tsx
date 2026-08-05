@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next'
 import { Lightning, PaintBrush, FloppyDisk, GearSix } from '@phosphor-icons/react'
+import { capabilities } from '@/lib/capabilities'
 
 const TABS = [
   { id: 'effects',  Icon: Lightning,  labelKey: 'tabs.effects' },
@@ -17,10 +18,12 @@ interface Props {
 
 export function TabBar({ active, onSelect }: Props) {
   const { t } = useTranslation()
+  const visibleTabs = TABS.filter(tab => tab.id !== 'presets' || capabilities.presets)
+
   return (
     <nav className="fixed bottom-0 left-0 right-0 bg-zinc-950/95 backdrop-blur border-t border-zinc-800 pb-4 z-10">
-      <div className="grid grid-cols-4">
-        {TABS.map(({ id, Icon, labelKey }) => {
+      <div className={visibleTabs.length === 4 ? 'grid grid-cols-4' : 'grid grid-cols-3'}>
+        {visibleTabs.map(({ id, Icon, labelKey }) => {
           const isActive = active === id
           return (
             <button
