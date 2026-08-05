@@ -12,6 +12,11 @@ namespace {
     const char* STATE_CHAR_UUID = "7a2eec02-4b0f-4bde-9f3f-1a7c6d9b2e10";
     const size_t CHUNK_PAYLOAD  = 100; // keep in sync with CHUNK_PAYLOAD in useBluetoothTransport.ts
 
+    // Reassembly cap: comfortably above the 256-byte StaticJsonDocument budget
+    // handleCommand() parses into, so a client that never sends a terminating
+    // chunk can't grow _rxBuffer without bound.
+    const size_t MAX_RX_COMMAND_SIZE = 512;
+
     class ServerCallbacks : public NimBLEServerCallbacks {
     public:
         void onDisconnect(NimBLEServer* server, NimBLEConnInfo& connInfo, int reason) override {
@@ -62,12 +67,38 @@ void BleServer::onCommandChunk(const uint8_t* data, size_t len) {
     uint8_t more = data[1];
 
     if (seq == 0) _rxBuffer = "";
+
+    if (_rxBuffer.length() + (len - 2) > MAX_RX_COMMAND_SIZE) {
+        _rxBuffer = ""; // runaway/oversized frame train — drop it, wait for the next seq==0
+        return;
+    }
     _rxBuffer.concat(reinterpret_cast<const char*>(data + 2), len - 2);
 
     if (!more) {
-        handleCommand(_rxBuffer.c_str());
+        // Hand the completed JSON off to the main loop instead of applying it
+        // here — this callback runs on the NimBLE host task, and Config/
+        // EffectsEngine must only be touched from the single-threaded loop().
+        portENTER_CRITICAL(&_mux);
+        _pendingCommand = _rxBuffer;
+        _cmdPending = true;
+        portEXIT_CRITICAL(&_mux);
         _rxBuffer = "";
     }
+}
+
+void BleServer::loop() {
+    String cmd;
+    bool hasCmd = false;
+
+    portENTER_CRITICAL(&_mux);
+    if (_cmdPending) {
+        cmd = _pendingCommand;
+        _cmdPending = false;
+        hasCmd = true;
+    }
+    portEXIT_CRITICAL(&_mux);
+
+    if (hasCmd) handleCommand(cmd.c_str());
 }
 
 void BleServer::handleCommand(const char* json) {
