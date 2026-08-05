@@ -23,6 +23,7 @@
 - No new automated test framework is introduced for the frontend (none exists today — no vitest/jest in `web/package.json`). Firmware verification is compile-only (`pio run -e <env>`) since there's no hardware-in-the-loop test harness in this repo (only `PixelMapper` has a native unit test, and it's pure logic — BLE/GATT code isn't). Final functional verification is manual, on real hardware (Task 12).
 - Added during Task 3 review: `BleServer`'s command reassembly buffer is capped at `MAX_RX_COMMAND_SIZE = 512` bytes (a client that never sends a terminating chunk gets dropped, not an unbounded heap grow), and `onCommandChunk` (NimBLE host task) never mutates `Config`/`EffectsEngine` directly — it hands the completed JSON to a `portMUX_TYPE`-guarded pending-command slot that `BleServer::loop()` (called from the main Arduino loop, single-threaded, added in Task 4) drains and applies. This keeps all `Config`/`EffectsEngine` access on the same task as the rest of the codebase's WS/Hyperion/Ambilight handling.
 - Added during Task 3 re-review: an overflow drop sets `_rxDesynced = true` so stray continuation chunks from the aborted train are ignored until the next `seq==0` (rather than being silently reinterpreted as a new command's start), and both sides of the cross-task hand-off use `std::move` on the `String` payload so no heap-allocating copy happens while `_mux` is held.
+- Added during Task 3 third review round: `_pendingCommand` is only assigned when `_cmdPending` is currently false (i.e. the mailbox is empty/already-drained) — a backlogged second command is dropped rather than overwriting an undrained one. This guarantees `_pendingCommand` never holds a live heap buffer at assignment time, so Arduino `String`'s move-assignment always takes its true zero-cost pointer-steal path and never falls into its capacity-reuse path (which would otherwise do a bounded `memmove` + `free()` while `_mux` is held, in that narrow backlog case).
 
 ---
 
@@ -404,10 +405,16 @@ void BleServer::onCommandChunk(const uint8_t* data, size_t len) {
         // Hand the completed JSON off to the main loop instead of applying it
         // here — this callback runs on the NimBLE host task, and Config/
         // EffectsEngine must only be touched from the single-threaded loop().
-        // std::move avoids an allocating copy while the critical section is held.
         portENTER_CRITICAL(&_mux);
-        _pendingCommand = std::move(_rxBuffer);
-        _cmdPending = true;
+        if (!_cmdPending) {
+            // Only assign when the mailbox is empty: _pendingCommand then holds
+            // no live heap buffer, so std::move always takes Arduino String's
+            // zero-cost pointer-steal path, never its memmove+free reuse path.
+            // If a previous command is still undrained, drop this new one
+            // rather than risk that heap work while the critical section is held.
+            _pendingCommand = std::move(_rxBuffer);
+            _cmdPending = true;
+        }
         portEXIT_CRITICAL(&_mux);
         _rxBuffer = "";
     }
