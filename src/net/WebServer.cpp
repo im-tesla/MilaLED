@@ -9,6 +9,7 @@
 #include <WiFiClient.h>
 #include <WiFiManager.h>
 #include "../version.h"
+#include "CoreParamRouter.h"
 
 void MilaWebServer::begin(Config* cfg, ConfigStore* store, EffectsEngine* engine) {
     _cfg = cfg; _store = store; _engine = engine;
@@ -336,30 +337,14 @@ void MilaWebServer::handleWsMessage(const char* json) {
     StaticJsonDocument<256> doc;
     if (deserializeJson(doc, json)) return;
 
-    bool anyChanged      = false;
-    bool discreteChanged = false; // needs save + broadcast
+    ParamApplyResult r = applyCoreParams(*_cfg, doc);
+    bool anyChanged      = r.anyChanged;
+    bool discreteChanged = r.discreteChanged;
 
-    // Continuous params: update config + LEDs immediately, but do NOT save or echo
-    // (echoing would fight the slider and cause teleport-back jitter)
-    if (doc.containsKey("brightness")) { _cfg->brightness = doc["brightness"]; anyChanged = true; }
-    if (doc.containsKey("speed"))      { _cfg->speed      = doc["speed"];      anyChanged = true; }
-    if (doc.containsKey("intensity"))  { _cfg->intensity  = doc["intensity"];  anyChanged = true; }
-    if (doc.containsKey("colorPrimary")) {
-        const char* hex = doc["colorPrimary"];
-        if (hex && hex[0] == '#') _cfg->colorPrimary = strtoul(hex + 1, nullptr, 16);
-        anyChanged = true;
-    }
-    if (doc.containsKey("colorSecondary")) {
-        const char* hex = doc["colorSecondary"];
-        if (hex && hex[0] == '#') _cfg->colorSecondary = strtoul(hex + 1, nullptr, 16);
-        anyChanged = true;
-    }
+    // WS-only continuous param
     if (doc.containsKey("ambPollMs")) { _cfg->ambPollMs = doc["ambPollMs"]; anyChanged = true; }
 
-    // Discrete params: save to flash + broadcast so other clients see the change
-    if (doc.containsKey("power"))      { _cfg->power = doc["power"];                                              anyChanged = discreteChanged = true; }
-    if (doc.containsKey("effect"))     { strlcpy(_cfg->effect,     doc["effect"]     | "", sizeof(_cfg->effect));  anyChanged = discreteChanged = true; }
-    if (doc.containsKey("palette"))    { strlcpy(_cfg->palette,    doc["palette"]    | "", sizeof(_cfg->palette)); anyChanged = discreteChanged = true; }
+    // WS-only discrete params
     if (doc.containsKey("tvIp"))       { strlcpy(_cfg->tvIp,       doc["tvIp"]       | "", sizeof(_cfg->tvIp));    anyChanged = discreteChanged = true; }
     if (doc.containsKey("ambMapping")) { strlcpy(_cfg->ambMapping, doc["ambMapping"] | "", sizeof(_cfg->ambMapping)); anyChanged = discreteChanged = true; }
 
