@@ -1,5 +1,7 @@
 import { useState, useCallback } from 'react'
 import { useWebSocket } from './useWebSocket'
+import { useBluetoothTransport } from './useBluetoothTransport'
+import { TRANSPORT } from '@/lib/capabilities'
 
 export interface SegmentData {
   count: number
@@ -75,12 +77,18 @@ export function useLedState(wsUrl: string) {
     }
   }, [])
 
-  const { send, status } = useWebSocket(wsUrl, onMessage)
+  // TRANSPORT is a build-time constant (Vite inlines import.meta.env and
+  // dead-code-eliminates the unused branch), so exactly one of these two
+  // hooks ever actually runs for a given bundle.
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const { send, status, connect, error } = TRANSPORT === 'ble'
+    ? useBluetoothTransport(onMessage)
+    : { ...useWebSocket(wsUrl, onMessage), error: null as string | null }
 
   const update = useCallback((patch: Partial<LedState>) => {
     setState(s => ({ ...s, ...patch }))
     send(patch)
   }, [send])
 
-  return { state, update, status, scanProgress, foundTvs, send }
+  return { state, update, status, scanProgress, foundTvs, send, connect, error }
 }
