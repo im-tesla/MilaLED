@@ -65,13 +65,21 @@ export function useBluetoothTransport(
         seq++
       } while (offset < bytes.length)
     }
-    writeChunks().catch(() => { /* write failed — device likely disconnected */ })
+    writeChunks().catch((err: Error) => {
+      setError(err.message || 'Bluetooth write failed')
+    })
   }, [])
 
   const send = useThrottledSender(sendRaw)
 
   const connect = useCallback(() => {
     setError(null)
+
+    if (!navigator.bluetooth) {
+      setError('Web Bluetooth is not supported in this browser')
+      return
+    }
+
     setStatus('connecting')
 
     navigator.bluetooth.requestDevice({
