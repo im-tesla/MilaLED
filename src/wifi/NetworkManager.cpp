@@ -2,12 +2,17 @@
 #include <WiFiManager.h>
 #ifdef ESP32
 #include <ESPmDNS.h>
+#include <esp_wifi.h>
+#include <esp_system.h>
 #else
 #include <ESP8266mDNS.h>
+#include <user_interface.h>
 #endif
 
 static WiFiManager _wm;
 static bool _shouldSave = false;
+
+static uint8_t _customMac[6] = {0xDC, 0x06, 0x75, 0x66, 0xAC, 0x13};
 
 // Called by WiFiManager BEFORE saving — validate credentials are non-empty
 static void preSaveCallback() {
@@ -21,6 +26,15 @@ static void preSaveCallback() {
 }
 
 void NetworkManager::begin(const char* apName) {
+#ifdef ESP8266
+    WiFi.mode(WIFI_STA);
+    wifi_set_macaddr(STATION_IF, _customMac);
+#elif defined(ESP32)
+    esp_base_mac_addr_set(_customMac);
+    WiFi.mode(WIFI_STA);
+    esp_wifi_set_mac(WIFI_IF_STA, _customMac);
+#endif
+
     // Fallback AP for captive-portal setup when no saved network
     _wm.setConfigPortalTimeout(150);
 
@@ -58,6 +72,10 @@ String NetworkManager::localIP() const {
 
 String NetworkManager::ssid() const {
     return WiFi.SSID();
+}
+
+String NetworkManager::macAddress() const {
+    return WiFi.macAddress();
 }
 
 void NetworkManager::loop() {

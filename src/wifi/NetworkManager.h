@@ -7,5 +7,6 @@ public:
     bool isConnected() const;
     String localIP() const;
     String ssid() const;
+    String macAddress() const;
     void loop();
 };
