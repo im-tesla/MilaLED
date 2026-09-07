@@ -13,6 +13,7 @@ static WiFiManager _wm;
 static bool _shouldSave = false;
 
 static uint8_t _customMac[6] = {0xDC, 0x06, 0x75, 0x66, 0xAC, 0x13};
+static bool _prepared = false;
 
 // Called by WiFiManager BEFORE saving — validate credentials are non-empty
 static void preSaveCallback() {
@@ -25,15 +26,21 @@ static void preSaveCallback() {
     _shouldSave = true;
 }
 
-void NetworkManager::begin(const char* apName) {
+void NetworkManager::prepare() {
+    if (_prepared) return;
 #ifdef ESP8266
-    WiFi.mode(WIFI_STA);
     wifi_set_macaddr(STATION_IF, _customMac);
+    WiFi.mode(WIFI_AP_STA);
 #elif defined(ESP32)
     esp_base_mac_addr_set(_customMac);
-    WiFi.mode(WIFI_STA);
     esp_wifi_set_mac(WIFI_IF_STA, _customMac);
+    WiFi.mode(WIFI_AP_STA);
 #endif
+    _prepared = true;
+}
+
+void NetworkManager::begin(const char* apName) {
+    prepare();
 
     // Fallback AP for captive-portal setup when no saved network
     _wm.setConfigPortalTimeout(150);
@@ -50,7 +57,6 @@ void NetworkManager::begin(const char* apName) {
     // WiFiManager's captive portal blocks the main loop. Skip it on a fresh
     // device so BLE can be used immediately without Wi-Fi credentials.
     if (WiFi.SSID().length() < 2) {
-        WiFi.mode(WIFI_AP_STA);
         WiFi.softAP(apName);
         return;
     }

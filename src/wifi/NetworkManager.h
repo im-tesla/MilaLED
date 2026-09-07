@@ -3,6 +3,7 @@
 
 class NetworkManager {
 public:
+    void prepare();
     void begin(const char* apName = "MilaLED");
     bool isConnected() const;
     String localIP() const;

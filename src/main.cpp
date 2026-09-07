@@ -61,6 +61,11 @@ void setup() {
     }
 #endif
 
+    // Initialize the Wi-Fi/LwIP stack without attempting a connection yet.
+    // WebServer requires this stack, while BLE must start before any blocking
+    // WiFiManager connection attempt.
+    network.prepare();
+
     Serial.println("[http]  starting web server...");
     webServer.begin(&cfg, &cfgStore, &engine);
 
