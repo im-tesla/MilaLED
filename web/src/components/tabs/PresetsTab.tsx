@@ -33,7 +33,7 @@ export function PresetsTab({ state, update, presets, sendCommand }: Props) {
 
   const save = async () => {
     if (!newName.trim()) return
-    const p: Preset = {
+    const p: PresetData = {
       name: newName.trim(),
       effect: state.effect,
       brightness: state.brightness,
@@ -47,7 +47,7 @@ export function PresetsTab({ state, update, presets, sendCommand }: Props) {
     if (TRANSPORT !== 'ble') fetchPresets()
   }
 
-  const load = (p: Preset) =>
+  const load = (p: PresetData) =>
     update({ effect: p.effect, brightness: p.brightness, palette: p.palette })
 
   const del = async (name: string) => {
