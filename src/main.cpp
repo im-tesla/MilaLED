@@ -52,9 +52,6 @@ void setup() {
 
     LittleFS.mkdir("/presets"); // ensure preset directory exists
 
-    Serial.println("[http]  starting web server...");
-    webServer.begin(&cfg, &cfgStore, &engine);
-
 #ifdef ESP32
     if (cfg.bleEnabled) {
         Serial.println("[ble]   starting BLE server...");
@@ -63,6 +60,9 @@ void setup() {
         bleServer.setWebServer(&webServer);
     }
 #endif
+
+    Serial.println("[http]  starting web server...");
+    webServer.begin(&cfg, &cfgStore, &engine);
 
     Serial.println("[wifi]  connecting (or opening config portal)...");
     network.begin("MilaLED");  // skips the blocking portal for BLE-only boots
@@ -75,6 +75,13 @@ void setup() {
     if (network.isConnected()) {
         Serial.print("[wifi]  connected! "); Serial.println(network.localIP().c_str());
         engine.setStatus(EffectsEngine::STATUS_OK);
+#ifdef ESP32
+    } else if (cfg.bleEnabled) {
+        // BLE is the active control path even when Wi-Fi is unavailable.
+        // Do not leave the permanent AP blink status in front of effects.
+        Serial.println("[wifi]  unavailable — BLE-only mode");
+        engine.setStatus(EffectsEngine::STATUS_NONE);
+#endif
     } else {
         Serial.println("[wifi]  AP mode — connect to 'MilaLED' hotspot");
         engine.setStatus(EffectsEngine::STATUS_AP_MODE);
