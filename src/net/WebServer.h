@@ -9,6 +9,7 @@ using WebServerClass = ESP8266WebServer;
 #endif
 #include <WebSocketsServer.h>
 #include <FS.h>
+#include <ArduinoJson.h>
 #include "../config/ConfigStore.h"
 #include "../leds/EffectsEngine.h"
 
@@ -20,6 +21,8 @@ public:
     void broadcastScanProgress(uint8_t pct, const char* msg);
 #ifdef ESP32
     void setBleServer(BleServer* ble) { _ble = ble; }
+    bool handleBleCommand(const char* json, String& response);
+    String buildStateJson();
 #endif
 
 private:
@@ -32,6 +35,7 @@ private:
     BleServer*       _ble = nullptr;
 #endif
     bool             _pendingRestart = false;
+    bool             _pendingWifiReset = false;
     bool             _scanActive  = false;
     bool             _scanCancel  = false;
     uint16_t         _scanIp      = 0;
@@ -40,6 +44,7 @@ private:
     void handleWsEvent(uint8_t num, WStype_t type, uint8_t* payload, size_t len);
     void handleWsMessage(const char* json);
     void handleRestPresets();
-    String buildStateJson();
+    String buildPresetsJson();
+    void applyStripConfig(JsonDocument& doc);
     void streamRobust(File& f, const String& contentType, bool gzip);
 };

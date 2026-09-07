@@ -4,32 +4,32 @@ import { Plus } from '@phosphor-icons/react'
 import { PresetCard } from '@/components/shared/PresetCard'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import type { LedState } from '@/hooks/useLedState'
-
-interface Preset {
-  name: string
-  effect: string
-  brightness: number
-  palette: string
-}
+import type { LedState, PresetData } from '@/hooks/useLedState'
+import { TRANSPORT } from '@/lib/capabilities'
 
 interface Props {
   state: LedState
   update: (p: Partial<LedState>) => void
+  presets: PresetData[]
+  sendCommand: (data: object) => void
 }
 
-export function PresetsTab({ state, update }: Props) {
+export function PresetsTab({ state, update, presets, sendCommand }: Props) {
   const { t } = useTranslation()
-  const [presets, setPresets] = useState<Preset[]>([])
+  const [wifiPresets, setWifiPresets] = useState<PresetData[]>([])
   const [newName, setNewName] = useState('')
 
-  const fetchPresets = () =>
-    fetch('/api/presets')
-      .then(r => r.json())
-      .then(setPresets)
-      .catch(() => {})
+  const fetchPresets = () => {
+    if (TRANSPORT === 'ble') {
+      sendCommand({ action: 'presetList' })
+      return
+    }
+    fetch('/api/presets').then(r => r.json()).then(setWifiPresets).catch(() => {})
+  }
 
   useEffect(() => { fetchPresets() }, [])
+
+  const visiblePresets = TRANSPORT === 'ble' ? presets : wifiPresets
 
   const save = async () => {
     if (!newName.trim()) return
@@ -39,30 +39,30 @@ export function PresetsTab({ state, update }: Props) {
       brightness: state.brightness,
       palette: state.palette,
     }
-    await fetch('/api/presets', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(p),
+    if (TRANSPORT === 'ble') sendCommand({ action: 'presetSave', ...p })
+    else await fetch('/api/presets', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(p),
     })
     setNewName('')
-    fetchPresets()
+    if (TRANSPORT !== 'ble') fetchPresets()
   }
 
   const load = (p: Preset) =>
     update({ effect: p.effect, brightness: p.brightness, palette: p.palette })
 
   const del = async (name: string) => {
-    await fetch('/api/presets', {
+    if (TRANSPORT === 'ble') sendCommand({ action: 'presetDelete', name })
+    else await fetch('/api/presets', {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name }),
     })
-    fetchPresets()
+    if (TRANSPORT !== 'ble') fetchPresets()
   }
 
   return (
     <div className="space-y-3">
-      {presets.map(p => (
+      {visiblePresets.map(p => (
         <PresetCard
           key={p.name}
           name={p.name}

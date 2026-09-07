@@ -9,7 +9,7 @@ const CHUNK_PAYLOAD   = 100 // keep in sync with CHUNK_PAYLOAD in BleServer.cpp
 
 export function useBluetoothTransport(
   onMessage: (data: unknown) => void
-): { status: WsStatus; send: (data: object) => void; connect: () => void; error: string | null } {
+): { status: WsStatus; send: (data: object) => void; sendImmediate: (data: object) => void; connect: () => void; error: string | null } {
   const [status, setStatus] = useState<WsStatus>('closed')
   const [error, setError]   = useState<string | null>(null)
   const cmdCharRef   = useRef<BluetoothRemoteGATTCharacteristic | null>(null)
@@ -116,5 +116,5 @@ export function useBluetoothTransport(
       })
   }, [handleNotification])
 
-  return { status, send, connect, error }
+  return { status, send, sendImmediate: data => sendRaw(JSON.stringify(data)), connect, error }
 }

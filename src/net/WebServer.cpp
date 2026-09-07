@@ -165,7 +165,6 @@ void MilaWebServer::begin(Config* cfg, ConfigStore* store, EffectsEngine* engine
             return;
         }
         const char* name = doc["name"] | "Unnamed";
-        // sanitize name (no path separators)
         String safeName = String(name);
         safeName.replace("/", "_");
         safeName.replace("\\", "_");
@@ -219,23 +218,7 @@ void MilaWebServer::begin(Config* cfg, ConfigStore* store, EffectsEngine* engine
             _http.send(400, "application/json", "{\"error\":\"bad json\"}");
             return;
         }
-        // Segment array
-        if (doc.containsKey("segments")) {
-            JsonArray arr = doc["segments"];
-            for (uint8_t i = 0; i < MAX_SEGMENTS; i++) {
-                if (i < arr.size()) {
-                    _cfg->segments[i].count = arr[i]["count"] | 0;
-                    _cfg->segments[i].half  = arr[i].containsKey("half")
-                        ? arr[i]["half"].as<bool>() : false;
-                } else {
-                    _cfg->segments[i] = SegmentCfg();
-                }
-            }
-        }
-        if (doc.containsKey("dataPin"))   _cfg->dataPin   = doc["dataPin"];
-        if (doc.containsKey("colorOrder"))_cfg->colorOrder= doc["colorOrder"];
-        if (doc.containsKey("chipset"))   _cfg->chipset   = doc["chipset"];
-        if (doc.containsKey("bleEnabled")) _cfg->bleEnabled = doc["bleEnabled"];
+        applyStripConfig(doc);
         _store->save(*_cfg);
         _http.send(200, "application/json", "{\"ok\":true}");
         _pendingRestart = true;
@@ -290,6 +273,9 @@ void MilaWebServer::loop() {
                         String out;
                         serializeJson(resp, out);
                         _ws.broadcastTXT(out.c_str());
+#ifdef ESP32
+                        if (_ble) _ble->notifyJson(out);
+#endif
                     }
                 }
                 http.end();
@@ -297,6 +283,13 @@ void MilaWebServer::loop() {
             client.stop();
             _scanIp++;
         }
+    }
+
+    if (_pendingWifiReset) {
+        delay(300);
+        WiFiManager wm;
+        wm.resetSettings();
+        ESP.restart();
     }
 
     if (_pendingRestart) {
@@ -321,6 +314,9 @@ void MilaWebServer::broadcastScanProgress(uint8_t pct, const char* msg) {
     String out;
     serializeJson(doc, out);
     _ws.broadcastTXT(out.c_str());
+#ifdef ESP32
+    if (_ble) _ble->notifyJson(out);
+#endif
 }
 
 void MilaWebServer::streamRobust(File& f, const String& contentType, bool gzip) {
@@ -402,6 +398,10 @@ void MilaWebServer::handleWsMessage(const char* json) {
 }
 
 void MilaWebServer::handleRestPresets() {
+    _http.send(200, "application/json", buildPresetsJson());
+}
+
+String MilaWebServer::buildPresetsJson() {
     StaticJsonDocument<2048> doc;
     JsonArray arr = doc.to<JsonArray>();
     File dir = LittleFS.open("/presets", "r");
@@ -421,8 +421,99 @@ void MilaWebServer::handleRestPresets() {
     if (dir) dir.close();
     String out;
     serializeJson(doc, out);
-    _http.send(200, "application/json", out);
+    return out;
 }
+
+void MilaWebServer::applyStripConfig(JsonDocument& doc) {
+    if (doc.containsKey("segments")) {
+        JsonArray arr = doc["segments"];
+        for (uint8_t i = 0; i < MAX_SEGMENTS; i++) {
+            if (i < arr.size()) {
+                _cfg->segments[i].count = arr[i]["count"] | 0;
+                _cfg->segments[i].half  = arr[i].containsKey("half")
+                    ? arr[i]["half"].as<bool>() : false;
+            } else {
+                _cfg->segments[i] = SegmentCfg();
+            }
+        }
+    }
+    if (doc.containsKey("dataPin"))    _cfg->dataPin    = doc["dataPin"];
+    if (doc.containsKey("colorOrder")) _cfg->colorOrder = doc["colorOrder"];
+    if (doc.containsKey("chipset"))    _cfg->chipset    = doc["chipset"];
+    if (doc.containsKey("bleEnabled")) _cfg->bleEnabled = doc["bleEnabled"];
+}
+
+#ifdef ESP32
+bool MilaWebServer::handleBleCommand(const char* json, String& response) {
+    StaticJsonDocument<512> doc;
+    if (deserializeJson(doc, json)) return false;
+
+    const char* action = doc["action"] | "";
+    if (!strcmp(action, "presetList")) {
+        response = buildPresetsJson();
+        String wrapped = String("{\"type\":\"presets\",\"items\":") + response + "}";
+        response = wrapped;
+        return true;
+    }
+
+    if (!strcmp(action, "presetSave")) {
+        String safeName = String(doc["name"] | "Unnamed");
+        safeName.replace("/", "_");
+        safeName.replace("\\", "_");
+        LittleFS.mkdir("/presets");
+        File f = LittleFS.open(String("/presets/") + safeName + ".json", "w");
+        if (!f) { response = "{\"type\":\"ack\",\"action\":\"presetSave\",\"ok\":false}"; return true; }
+        serializeJson(doc, f);
+        f.close();
+        response = String("{\"type\":\"presets\",\"items\":") + buildPresetsJson() + "}";
+        return true;
+    }
+
+    if (!strcmp(action, "presetDelete")) {
+        String name = String(doc["name"] | "");
+        name.replace("/", "_");
+        name.replace("\\", "_");
+        LittleFS.remove(String("/presets/") + name + ".json");
+        response = String("{\"type\":\"presets\",\"items\":") + buildPresetsJson() + "}";
+        return true;
+    }
+
+    if (!strcmp(action, "strip")) {
+        applyStripConfig(doc);
+        _store->save(*_cfg);
+        _pendingRestart = true;
+        response = "{\"type\":\"ack\",\"action\":\"strip\",\"ok\":true}";
+        return true;
+    }
+
+    if (!strcmp(action, "ambilightScan")) {
+        if (_scanActive) {
+            response = "{\"type\":\"ack\",\"action\":\"ambilightScan\",\"ok\":false}";
+            return true;
+        }
+        _scanActive = true;
+        _scanCancel = false;
+        _scanIp = 1;
+        _scanBase = WiFi.localIP();
+        response = "{\"type\":\"ack\",\"action\":\"ambilightScan\",\"ok\":true}";
+        return true;
+    }
+
+    if (!strcmp(action, "ambilightCancel")) {
+        _scanCancel = true;
+        response = "{\"type\":\"ack\",\"action\":\"ambilightCancel\",\"ok\":true}";
+        return true;
+    }
+
+    if (!strcmp(action, "wifiReset")) {
+        _pendingWifiReset = true;
+        response = "{\"type\":\"ack\",\"action\":\"wifiReset\",\"ok\":true}";
+        return true;
+    }
+
+    return false;
+}
+#endif
 
 String MilaWebServer::buildStateJson() {
     StaticJsonDocument<1024> doc;

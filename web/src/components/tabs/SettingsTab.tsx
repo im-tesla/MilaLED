@@ -50,11 +50,12 @@ const MAX_SEGMENTS = 4
 interface Props {
   state: LedState
   update: (p: Partial<LedState>) => void
+  sendCommand: (data: object) => void
   scanProgress: { pct: number; msg: string } | null
   foundTvs: string[]
 }
 
-export function SettingsTab({ state, update, scanProgress, foundTvs }: Props) {
+export function SettingsTab({ state, update, sendCommand, scanProgress, foundTvs }: Props) {
   const { t, i18n } = useTranslation()
 
   const [segments, setSegments] = useState<SegmentData[]>(() =>
@@ -102,31 +103,35 @@ export function SettingsTab({ state, update, scanProgress, foundTvs }: Props) {
 
   const saveStrip = async () => {
     setRebooting(true)
-    await fetch('/api/strip', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+    const command = {
+      action: 'strip',
         segments: segments.filter(s => s.count >= 0).slice(0, MAX_SEGMENTS),
         dataPin,
         colorOrder,
         chipset,
         bleEnabled,
-      }),
+    }
+    if (TRANSPORT === 'ble') sendCommand(command)
+    else await fetch('/api/strip', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(command),
     }).catch(() => {})
     setTimeout(() => setRebooting(false), 15000)
   }
 
   const startScan = () => {
-    fetch('/api/ambilight/scan', { method: 'POST' }).catch(() => {})
+    if (TRANSPORT === 'ble') sendCommand({ action: 'ambilightScan' })
+    else fetch('/api/ambilight/scan', { method: 'POST' }).catch(() => {})
   }
 
   const stopScan = () => {
-    fetch('/api/ambilight/scan/cancel', { method: 'POST' }).catch(() => {})
+    if (TRANSPORT === 'ble') sendCommand({ action: 'ambilightCancel' })
+    else fetch('/api/ambilight/scan/cancel', { method: 'POST' }).catch(() => {})
   }
 
   const resetWifi = async () => {
     setWifiResetting(true)
-    await fetch('/api/wifi/reset', { method: 'POST' }).catch(() => {})
+    if (TRANSPORT === 'ble') sendCommand({ action: 'wifiReset' })
+    else await fetch('/api/wifi/reset', { method: 'POST' }).catch(() => {})
   }
 
   const activeSegs = segments.filter(s => s.count > 0)

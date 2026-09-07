@@ -50,9 +50,6 @@ void setup() {
         delay(20);
     }
 
-    Serial.println("[wifi]  connecting (or opening config portal)...");
-    network.begin("MilaLED");  // AP+STA WiFi, blocks until connected or timeout
-
     LittleFS.mkdir("/presets"); // ensure preset directory exists
 
     Serial.println("[http]  starting web server...");
@@ -66,6 +63,9 @@ void setup() {
         bleServer.setWebServer(&webServer);
     }
 #endif
+
+    Serial.println("[wifi]  connecting (or opening config portal)...");
+    network.begin("MilaLED");  // skips the blocking portal for BLE-only boots
 
     Serial.println("[ota]   starting ArduinoOTA...");
     ArduinoOTA.setHostname("milaled");

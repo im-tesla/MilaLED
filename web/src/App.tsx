@@ -15,7 +15,7 @@ const WS_URL = `ws://${window.location.hostname}:81`
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<TabId>('effects')
-  const { state, update, status, scanProgress, foundTvs, connect, error } = useLedState(WS_URL)
+  const { state, update, status, scanProgress, foundTvs, presets, sendCommand, connect, error } = useLedState(WS_URL)
   const [isDark, setIsDark] = useState(() => localStorage.getItem('theme') !== 'light')
 
   useEffect(() => {
@@ -57,12 +57,13 @@ export default function App() {
               <ColorTab state={state} update={update} />
             )}
             {activeTab === 'presets' && (
-              <PresetsTab state={state} update={update} />
+              <PresetsTab state={state} update={update} presets={presets} sendCommand={sendCommand} />
             )}
             {activeTab === 'settings' && (
               <SettingsTab
                 state={state}
                 update={update}
+                sendCommand={sendCommand}
                 scanProgress={scanProgress}
                 foundTvs={foundTvs}
               />

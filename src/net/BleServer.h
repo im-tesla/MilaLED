@@ -18,6 +18,7 @@ public:
     void begin(Config* cfg, ConfigStore* store, EffectsEngine* engine);
     void loop();
     void notifyState();
+    void notifyJson(const String& json);
     void setWebServer(MilaWebServer* web) { _web = web; }
 
     // Called by the command characteristic's write callback (runs on the

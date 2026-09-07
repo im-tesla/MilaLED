@@ -135,8 +135,16 @@ void BleServer::loop() {
 }
 
 void BleServer::handleCommand(const char* json) {
-    StaticJsonDocument<256> doc;
+    StaticJsonDocument<768> doc;
     if (deserializeJson(doc, json)) return;
+
+    if (doc.containsKey("action") && _web) {
+        String response;
+        if (_web->handleBleCommand(json, response) && response.length()) {
+            notifyJson(response);
+        }
+        return;
+    }
 
     ParamApplyResult r = applyCoreParams(*_cfg, doc);
 
@@ -151,6 +159,17 @@ void BleServer::handleCommand(const char* json) {
 void BleServer::notifyState() {
     if (!_stateChar) return;
 
+    if (_web) {
+        notifyJson(_web->buildStateJson());
+        return;
+    }
+
+    notifyJson(buildCoreStateJson());
+}
+
+void BleServer::notifyJson(const String& json) {
+    if (!_stateChar) return;
+
     // Clamp chunk size to the actual negotiated MTU so notifications never
     // silently truncate — requesting MTU 247 in begin() doesn't guarantee
     // the central grants it. Falls back to the BLE spec's minimum ATT MTU
@@ -161,8 +180,6 @@ void BleServer::notifyState() {
     }
     size_t chunkPayload = (mtu > 5) ? (mtu - 5) : 1; // ATT overhead (3) + our seq/more header (2)
     if (chunkPayload > CHUNK_PAYLOAD) chunkPayload = CHUNK_PAYLOAD;
-
-    String json = buildCoreStateJson();
 
     size_t len    = json.length();
     size_t offset = 0;

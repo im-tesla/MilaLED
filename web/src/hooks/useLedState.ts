@@ -10,6 +10,13 @@ export interface SegmentData {
   start?: number      // physical offset
 }
 
+export interface PresetData {
+  name: string
+  effect: string
+  brightness: number
+  palette: string
+}
+
 export interface LedState {
   power: boolean
   brightness: number
@@ -64,6 +71,7 @@ const DEFAULT: LedState = {
 
 export function useLedState(wsUrl: string) {
   const [state, setState] = useState<LedState>(DEFAULT)
+  const [presets, setPresets] = useState<PresetData[]>([])
   const [scanProgress, setScanProgress] = useState<{ pct: number; msg: string } | null>(null)
   const [foundTvs, setFoundTvs] = useState<string[]>([])
 
@@ -71,6 +79,8 @@ export function useLedState(wsUrl: string) {
     const d = data as Record<string, unknown>
     if (d.type === 'state') {
       setState(s => ({ ...s, ...(d as Partial<LedState>) }))
+    } else if (d.type === 'presets') {
+      setPresets((d.items as PresetData[]) || [])
     } else if (d.type === 'scanProgress') {
       setScanProgress({ pct: d.pct as number, msg: d.msg as string })
       if ((d.pct as number) >= 100) setScanProgress(null)
@@ -85,9 +95,9 @@ export function useLedState(wsUrl: string) {
      for a given bundle. A block disable/enable pair is used instead of
      eslint-disable-next-line because the ternary's hook calls span multiple
      lines, which a single-line directive does not cover. */
-  const { send, status, connect, error } = TRANSPORT === 'ble'
+  const { send, sendImmediate, status, connect, error } = TRANSPORT === 'ble'
     ? useBluetoothTransport(onMessage)
-    : { ...useWebSocket(wsUrl, onMessage), error: null as string | null }
+    : { ...useWebSocket(wsUrl, onMessage), sendImmediate: null as ((data: object) => void) | null, error: null as string | null }
   /* eslint-enable react-hooks/rules-of-hooks */
 
   const update = useCallback((patch: Partial<LedState>) => {
@@ -95,5 +105,5 @@ export function useLedState(wsUrl: string) {
     send(patch)
   }, [send])
 
-  return { state, update, status, scanProgress, foundTvs, send, connect, error }
+  return { state, update, status, scanProgress, foundTvs, presets, send, sendCommand: sendImmediate || send, connect, error }
 }

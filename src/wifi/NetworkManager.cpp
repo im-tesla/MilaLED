@@ -47,6 +47,14 @@ void NetworkManager::begin(const char* apName) {
     // Don't reboot after saving — we handle that ourselves
     _wm.setBreakAfterConfig(false);
 
+    // WiFiManager's captive portal blocks the main loop. Skip it on a fresh
+    // device so BLE can be used immediately without Wi-Fi credentials.
+    if (WiFi.SSID().length() < 2) {
+        WiFi.mode(WIFI_AP_STA);
+        WiFi.softAP(apName);
+        return;
+    }
+
     bool connected = _wm.autoConnect(apName);
 
     if (_shouldSave) {
