@@ -77,6 +77,7 @@ void NetworkManager::begin(const char*) {
             _joinError = "";
             WiFi.setAutoReconnect(true);
             esp_coex_preference_set(ESP_COEX_PREFER_WIFI);
+            NimBLEDevice::startAdvertising();
             MDNS.begin("milaled");
             MDNS.addService("wled", "_tcp", 80);
             MDNS.addServiceTxt("wled", "_tcp", "mac", WiFi.macAddress().c_str());
@@ -170,6 +171,7 @@ void NetworkManager::loop() {
             WiFi.setAutoReconnect(true);
 #ifdef ESP32
             esp_coex_preference_set(ESP_COEX_PREFER_WIFI);
+            NimBLEDevice::startAdvertising();
 #endif
             Serial.printf("[wifi]  joined network successfully! IP: %s\n", WiFi.localIP().toString().c_str());
             MDNS.begin("milaled");

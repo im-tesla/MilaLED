@@ -63,6 +63,10 @@ void BleServer::begin(Config* cfg, ConfigStore* store, EffectsEngine* engine) {
 
     NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
     adv->addServiceUUID(SERVICE_UUID);
+    adv->setName("MilaLED");
+    adv->enableScanResponse(true);
+    adv->setMinInterval(160);
+    adv->setMaxInterval(320);
     adv->start();
 }
 
