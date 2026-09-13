@@ -2,13 +2,43 @@
 #include <ArduinoJson.h>
 #include <ESPmDNS.h>
 #include <esp_wifi.h>
+#include <esp_mac.h>
 #include <esp_system.h>
 #include <esp_coexist.h>
 #include <NimBLEDevice.h>
+#include <LittleFS.h>
 #include <vector>
 #include <algorithm>
 
 static bool _prepared = false;
+
+// Loads a persistent spoofed MAC from /mac.bin, generating one on first boot.
+// Returns true if mac[] was populated.
+static bool loadOrGenerateMac(uint8_t mac[6]) {
+    File f = LittleFS.open("/mac.bin", "r");
+    if (f && f.size() == 6) {
+        f.read(mac, 6);
+        f.close();
+        // Sanity: must be unicast + locally administered
+        if ((mac[0] & 0x01) == 0 && (mac[0] & 0x02) != 0) {
+            Serial.printf("[mac]  loaded stored MAC: %02X:%02X:%02X:%02X:%02X:%02X\n",
+                mac[0],mac[1],mac[2],mac[3],mac[4],mac[5]);
+            return true;
+        }
+    }
+    if (f) f.close();
+
+    // Generate fresh random MAC
+    for (int i = 0; i < 6; i++) mac[i] = (uint8_t)(esp_random() & 0xFF);
+    mac[0] = (mac[0] & 0xFE) | 0x02;   // unicast (bit0=0) + locally administered (bit1=1)
+
+    File w = LittleFS.open("/mac.bin", "w");
+    if (w) { w.write(mac, 6); w.close(); }
+
+    Serial.printf("[mac]  generated new MAC: %02X:%02X:%02X:%02X:%02X:%02X\n",
+        mac[0],mac[1],mac[2],mac[3],mac[4],mac[5]);
+    return true;
+}
 
 static const char* wifiReasonDesc(uint8_t reason) {
     switch (reason) {
@@ -43,8 +73,18 @@ static const char* wifiReasonDesc(uint8_t reason) {
     }
 }
 
+static uint8_t _customMac[6] = {0};
+
 void NetworkManager::prepare() {
     if (_prepared) return;
+
+    // Apply a persistent locally-administered MAC before WiFi init.
+    // esp_base_mac_addr_set() must be called before WiFi.mode() /
+    // NimBLEDevice::init(), and it propagates to all interfaces.
+    if (loadOrGenerateMac(_customMac)) {
+        esp_base_mac_addr_set(_customMac);
+    }
+
     WiFi.mode(WIFI_STA);
     _prepared = true;
 }
@@ -149,8 +189,18 @@ String NetworkManager::ssid() const {
 }
 
 String NetworkManager::macAddress() const {
+    if (isConnected()) return WiFi.macAddress();
+    // Return the spoofed MAC even before WiFi connects
+    if (_customMac[0] || _customMac[1]) {
+        char buf[18];
+        snprintf(buf, sizeof(buf), "%02X:%02X:%02X:%02X:%02X:%02X",
+            _customMac[0], _customMac[1], _customMac[2],
+            _customMac[3], _customMac[4], _customMac[5]);
+        return String(buf);
+    }
     return WiFi.macAddress();
 }
+
 
 void NetworkManager::loop() {
     if (_joinStatus == JOIN_CONNECTING) {
