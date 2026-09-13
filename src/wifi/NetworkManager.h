@@ -44,7 +44,8 @@ private:
     bool         _isAp          = false;
     JoinStatus   _joinStatus    = JOIN_IDLE;
     String       _joinError     = "";
-    uint32_t     _joinStartTime = 0;
-    String       _targetSsid    = "";
-    String       _apName        = "MilaLED";
+    uint32_t     _joinStartTime   = 0;
+    uint8_t      _disconnectCount = 0;
+    String       _targetSsid      = "";
+    String       _apName          = "MilaLED";
 };

@@ -4,6 +4,8 @@
 #include <ESPmDNS.h>
 #include <esp_wifi.h>
 #include <esp_system.h>
+#include <esp_coexist.h>
+#include <NimBLEDevice.h>
 #else
 #include <ESP8266mDNS.h>
 #include <user_interface.h>
@@ -11,8 +13,6 @@
 #include <vector>
 #include <algorithm>
 
-// Original IEEE Espressif OUI MAC address
-static uint8_t _customMac[6] = {0xDC, 0x06, 0x75, 0x66, 0xAC, 0x13};
 static bool _prepared = false;
 
 void NetworkManager::prepare() {
@@ -45,22 +45,22 @@ void NetworkManager::begin(const char* apName) {
             MDNS.addServiceTxt("wled", "_tcp", "mac", WiFi.macAddress().c_str());
         } else if (event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
             uint8_t reason = info.wifi_sta_disconnected.reason;
-            Serial.printf("[wifi]  STA disconnected, reason: %d\n", reason);
+            _disconnectCount++;
+            Serial.printf("[wifi]  STA disconnected (count %d), reason: %d\n", _disconnectCount, reason);
             if (_joinStatus == JOIN_CONNECTING) {
-                if (reason == WIFI_REASON_AUTH_FAIL || 
-                    reason == WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT || 
-                    reason == WIFI_REASON_HANDSHAKE_TIMEOUT) {
-                    _joinStatus = JOIN_FAILED;
-                    _joinError = "Authentication failed (wrong password)";
-                } else if (reason == WIFI_REASON_AUTH_EXPIRE) {
-                    _joinStatus = JOIN_FAILED;
-                    _joinError = "Authentication expired (check password / router settings)";
+                if (reason == WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT || reason == WIFI_REASON_AUTH_FAIL) {
+                    if (_disconnectCount >= 2) {
+                        _joinStatus = JOIN_FAILED;
+                        _joinError = "Authentication failed (wrong password)";
+                    }
                 } else if (reason == WIFI_REASON_NO_AP_FOUND) {
+                    if (_disconnectCount >= 4) {
+                        _joinStatus = JOIN_FAILED;
+                        _joinError = "Network not found (check 2.4 GHz)";
+                    }
+                } else if (_disconnectCount >= 6) {
                     _joinStatus = JOIN_FAILED;
-                    _joinError = "Network not found (check 2.4 GHz)";
-                } else if (reason == WIFI_REASON_ASSOC_FAIL) {
-                    _joinStatus = JOIN_FAILED;
-                    _joinError = "Association rejected by router";
+                    _joinError = "Connection rejected by router (reason " + String(reason) + ")";
                 }
             }
         }
@@ -316,26 +316,29 @@ void NetworkManager::startJoin(const String& ssid, const String& password) {
         WiFi.softAPdisconnect(true);
     }
 
+    String cleanSsid = ssid;
+    cleanSsid.trim();
+    String cleanPass = password;
+    cleanPass.trim();
+
+    Serial.printf("[wifi]  joining '%s' (pw len %d)...\n", cleanSsid.c_str(), cleanPass.length());
+    _targetSsid = cleanSsid;
+    _joinStatus = JOIN_CONNECTING;
+    _joinStartTime = millis();
+    _disconnectCount = 0;
+    _joinError = "";
+
+#ifdef ESP32
+    esp_coex_preference_set(ESP_COEX_PREFER_WIFI);
+    NimBLEDevice::getAdvertising()->stop();
+#endif
+
     WiFi.mode(WIFI_STA);
-    WiFi.disconnect(false);
-    delay(50);
+    WiFi.disconnect(true);
+    delay(100);
 
     WiFi.persistent(true);
     WiFi.setAutoReconnect(true);
-#ifdef ESP32
-    esp_wifi_set_mode(WIFI_MODE_STA);
-    wifi_config_t conf;
-    memset(&conf, 0, sizeof(conf));
-    strncpy((char*)conf.sta.ssid, ssid.c_str(), sizeof(conf.sta.ssid) - 1);
-    strncpy((char*)conf.sta.password, password.c_str(), sizeof(conf.sta.password) - 1);
-    conf.sta.pmf_cfg.capable = true;
-    conf.sta.pmf_cfg.required = false;
-    if (targetChannel > 0) {
-        conf.sta.channel = targetChannel;
-    }
-    esp_wifi_set_config(WIFI_IF_STA, &conf);
-    esp_wifi_connect();
-#else
-    WiFi.begin(ssid.c_str(), password.c_str());
-#endif
+
+    WiFi.begin(cleanSsid.c_str(), cleanPass.c_str());
 }
