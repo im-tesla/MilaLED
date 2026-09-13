@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { WifiHigh, MagnifyingGlass, ArrowCounterClockwise, Stop, Plus, Trash } from '@phosphor-icons/react'
+import { MagnifyingGlass, ArrowCounterClockwise, Stop, Plus, Trash } from '@phosphor-icons/react'
 import { AmbilightStatus } from '@/components/shared/AmbilightStatus'
 import { capabilities, TRANSPORT } from '@/lib/capabilities'
 import { Button } from '@/components/ui/button'
@@ -13,7 +13,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import type { LedState, SegmentData } from '@/hooks/useLedState'
+import { WifiJoinPanel } from '@/components/shared/WifiJoinPanel'
+import type { LedState, SegmentData, WifiNetwork, WifiJoinStatus } from '@/hooks/useLedState'
 
 const ESP_PINS: { gpio: number; label: string }[] = [
   { gpio: 2,  label: 'GPIO2  (D4)' },
@@ -53,9 +54,27 @@ interface Props {
   sendCommand: (data: object) => void
   scanProgress: { pct: number; msg: string } | null
   foundTvs: string[]
+  wifiNetworks?: WifiNetwork[]
+  wifiScanning?: boolean
+  wifiJoinStatus?: WifiJoinStatus
+  onScanWifi?: () => void
+  onJoinWifi?: (ssid: string, pass: string) => void
+  onClearWifiStatus?: () => void
 }
 
-export function SettingsTab({ state, update, sendCommand, scanProgress, foundTvs }: Props) {
+export function SettingsTab({
+  state,
+  update,
+  sendCommand,
+  scanProgress,
+  foundTvs,
+  wifiNetworks,
+  wifiScanning,
+  wifiJoinStatus,
+  onScanWifi,
+  onJoinWifi,
+  onClearWifiStatus,
+}: Props) {
   const { t, i18n } = useTranslation()
 
   const [segments, setSegments] = useState<SegmentData[]>(() =>
@@ -66,8 +85,6 @@ export function SettingsTab({ state, update, sendCommand, scanProgress, foundTvs
   const [chipset,   setChipset]   = useState(state.chipset)
   const [bleEnabled, setBleEnabled] = useState(state.bleEnabled)
   const [rebooting, setRebooting] = useState(false)
-  const [confirmWifi, setConfirmWifi] = useState(false)
-  const [wifiResetting, setWifiResetting] = useState(false)
 
   // Sync from WebSocket on reconnect
   useEffect(() => {
@@ -129,7 +146,6 @@ export function SettingsTab({ state, update, sendCommand, scanProgress, foundTvs
   }
 
   const resetWifi = async () => {
-    setWifiResetting(true)
     if (TRANSPORT === 'ble') sendCommand({ action: 'wifiReset' })
     else await fetch('/api/wifi/reset', { method: 'POST' }).catch(() => {})
   }
@@ -319,53 +335,23 @@ export function SettingsTab({ state, update, sendCommand, scanProgress, foundTvs
       )}
 
       {/* Network */}
-      {capabilities.wifiReset && (
+      {capabilities.wifiConfig && (
       <section className="space-y-2">
         <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">
-          {t('settings.network')}
+          {TRANSPORT === 'ble' ? t('settings.wifiBle') : t('settings.network')}
         </h3>
-        <div className="rounded-xl bg-zinc-900 border border-zinc-800 divide-y divide-zinc-800">
-          <div className="p-3 flex items-center justify-between text-sm">
-            <span className="text-zinc-400 flex items-center gap-1.5">
-              <WifiHigh size={14} />
-              {t('settings.wifi')}
-            </span>
-            <span className="text-zinc-100 truncate max-w-[140px]">{state.ssid || '—'}</span>
-          </div>
-          <div className="p-3 flex items-center justify-between text-sm">
-            <span className="text-zinc-400">IP</span>
-            <span className="text-zinc-100 tabular-nums">{state.ip || '—'}</span>
-          </div>
-          <div className="p-3 space-y-2">
-            {!confirmWifi ? (
-              <button
-                onClick={() => setConfirmWifi(true)}
-                className="w-full text-xs py-2 rounded-lg border border-zinc-700 text-zinc-400 hover:border-zinc-600 hover:text-zinc-300 transition-colors"
-              >
-                {t('settings.wifiChange')}
-              </button>
-            ) : (
-              <div className="space-y-2">
-                <p className="text-[11px] text-zinc-500">{t('settings.wifiChangeConfirm')}</p>
-                <div className="flex gap-2">
-                  <button
-                    onClick={resetWifi}
-                    disabled={wifiResetting}
-                    className="flex-1 text-xs py-2 rounded-lg border border-red-500/50 text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50"
-                  >
-                    {wifiResetting ? t('settings.rebooting') : t('settings.confirm')}
-                  </button>
-                  <button
-                    onClick={() => setConfirmWifi(false)}
-                    className="flex-1 text-xs py-2 rounded-lg border border-zinc-700 text-zinc-400 hover:border-zinc-600 transition-colors"
-                  >
-                    {t('settings.cancel')}
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
+        <WifiJoinPanel
+          networks={wifiNetworks || []}
+          scanning={wifiScanning || false}
+          joinStatus={wifiJoinStatus || { status: 'idle' }}
+          onScan={onScanWifi || (() => {})}
+          onJoin={onJoinWifi || (() => {})}
+          onClearStatus={onClearWifiStatus || (() => {})}
+          currentSsid={state.ssid}
+          currentIp={state.ip}
+          isConnected={state.wifiConnected ?? (Boolean(state.ssid) && !state.isAp)}
+          onResetWifi={resetWifi}
+        />
       </section>
       )}
 

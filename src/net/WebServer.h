@@ -13,33 +13,39 @@ using WebServerClass = ESP8266WebServer;
 #include "../config/ConfigStore.h"
 #include "../leds/EffectsEngine.h"
 
+class NetworkManager;
+
 class MilaWebServer {
 public:
-    void begin(Config* cfg, ConfigStore* store, EffectsEngine* engine);
+    void begin(Config* cfg, ConfigStore* store, EffectsEngine* engine, NetworkManager* network = nullptr);
     void loop();
     void broadcastState();
     void broadcastScanProgress(uint8_t pct, const char* msg);
+    void setNetworkManager(NetworkManager* network) { _network = network; }
+    String buildStateJson();
 #ifdef ESP32
     void setBleServer(BleServer* ble) { _ble = ble; }
     bool handleBleCommand(const char* json, String& response);
-    String buildStateJson();
 #endif
 
 private:
     WebServerClass   _http{80};
     WebSocketsServer _ws{81};
-    Config*          _cfg    = nullptr;
-    ConfigStore*     _store  = nullptr;
-    EffectsEngine*   _engine = nullptr;
+    Config*          _cfg     = nullptr;
+    ConfigStore*     _store   = nullptr;
+    EffectsEngine*   _engine  = nullptr;
+    NetworkManager*  _network = nullptr;
 #ifdef ESP32
     BleServer*       _ble = nullptr;
 #endif
-    bool             _pendingRestart = false;
+    bool             _pendingRestart   = false;
     bool             _pendingWifiReset = false;
-    bool             _scanActive  = false;
-    bool             _scanCancel  = false;
-    uint16_t         _scanIp      = 0;
+    bool             _scanActive       = false;
+    bool             _scanCancel       = false;
+    uint16_t         _scanIp           = 0;
     IPAddress        _scanBase;
+    bool             _bleScanPending   = false;
+    bool             _bleJoinPending   = false;
 
     void handleWsEvent(uint8_t num, WStype_t type, uint8_t* payload, size_t len);
     void handleWsMessage(const char* json);

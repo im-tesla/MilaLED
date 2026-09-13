@@ -17,6 +17,19 @@ export interface PresetData {
   palette: string
 }
 
+export interface WifiNetwork {
+  ssid: string
+  rssi: number
+  secure: boolean
+}
+
+export interface WifiJoinStatus {
+  status: 'idle' | 'connecting' | 'connected' | 'failed'
+  ssid?: string
+  ip?: string
+  error?: string
+}
+
 export interface LedState {
   power: boolean
   brightness: number
@@ -29,6 +42,8 @@ export interface LedState {
   virtualLeds: number
   ip: string
   ssid: string
+  wifiConnected?: boolean
+  isAp?: boolean
   segments: SegmentData[]
   dataPin: number
   colorOrder: number
@@ -53,6 +68,8 @@ const DEFAULT: LedState = {
   virtualLeds: 120,
   ip: '',
   ssid: '',
+  wifiConnected: false,
+  isAp: false,
   segments: [
     { count: 120, half: false },
     { count: 0, half: false },
@@ -74,6 +91,9 @@ export function useLedState(wsUrl: string) {
   const [presets, setPresets] = useState<PresetData[]>([])
   const [scanProgress, setScanProgress] = useState<{ pct: number; msg: string } | null>(null)
   const [foundTvs, setFoundTvs] = useState<string[]>([])
+  const [wifiNetworks, setWifiNetworks] = useState<WifiNetwork[]>([])
+  const [wifiScanning, setWifiScanning] = useState(false)
+  const [wifiJoinStatus, setWifiJoinStatus] = useState<WifiJoinStatus>({ status: 'idle' })
 
   const onMessage = useCallback((data: unknown) => {
     const d = data as Record<string, unknown>
@@ -86,6 +106,15 @@ export function useLedState(wsUrl: string) {
       if ((d.pct as number) >= 100) setScanProgress(null)
     } else if (d.type === 'ambilightFound') {
       setFoundTvs(tvs => [...tvs, d.ip as string])
+    } else if (d.type === 'wifiScan') {
+      setWifiNetworks((d.networks as WifiNetwork[]) || [])
+      setWifiScanning(false)
+    } else if (d.type === 'wifiJoinResult') {
+      const res = d as unknown as WifiJoinStatus
+      setWifiJoinStatus(res)
+      if (res.status === 'connected' && res.ssid) {
+        setState(s => ({ ...s, ssid: res.ssid || s.ssid, ip: res.ip || s.ip, wifiConnected: true, isAp: false }))
+      }
     }
   }, [])
 
@@ -100,10 +129,100 @@ export function useLedState(wsUrl: string) {
     : { ...useWebSocket(wsUrl, onMessage), sendImmediate: null as ((data: object) => void) | null, error: null as string | null }
   /* eslint-enable react-hooks/rules-of-hooks */
 
+  const sendCommand = sendImmediate || send
+
+  const scanWifi = useCallback(() => {
+    setWifiScanning(true)
+    if (TRANSPORT === 'ble') {
+      sendCommand({ action: 'wifiScan' })
+    } else {
+      fetch('/api/wifi/scan', { method: 'POST' })
+        .catch(() => {})
+        .finally(() => {
+          let attempts = 0
+          const check = () => {
+            fetch('/api/wifi/scan')
+              .then(r => r.json())
+              .then(data => {
+                if (data.scanning && attempts < 10) {
+                  attempts++
+                  setTimeout(check, 1000)
+                } else {
+                  setWifiNetworks(data.networks || [])
+                  setWifiScanning(false)
+                }
+              })
+              .catch(() => setWifiScanning(false))
+          }
+          setTimeout(check, 1500)
+        })
+    }
+  }, [sendCommand])
+
+  const joinWifi = useCallback((ssid: string, password: string) => {
+    setWifiJoinStatus({ status: 'connecting', ssid })
+    if (TRANSPORT === 'ble') {
+      sendCommand({ action: 'wifiJoin', ssid, password })
+    } else {
+      fetch('/api/wifi/join', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ssid, password }),
+      })
+        .then(r => r.json())
+        .then(() => {
+          let attempts = 0
+          const poll = () => {
+            fetch('/api/wifi/status')
+              .then(r => r.json())
+              .then(st => {
+                if (st.status === 'connecting' && attempts < 15) {
+                  attempts++
+                  setTimeout(poll, 1000)
+                } else if (st.status === 'connected') {
+                  setWifiJoinStatus({ status: 'connected', ssid: st.ssid, ip: st.ip })
+                  setState(s => ({ ...s, ssid: st.ssid, ip: st.ip, wifiConnected: true, isAp: false }))
+                } else if (st.status === 'failed') {
+                  setWifiJoinStatus({ status: 'failed', error: st.error || 'Connection failed' })
+                }
+              })
+              .catch(() => {
+                // If device switched channels/networks, connection might be interrupted
+              })
+          }
+          setTimeout(poll, 2000)
+        })
+        .catch(err => {
+          setWifiJoinStatus({ status: 'failed', error: err.message || 'Request failed' })
+        })
+    }
+  }, [sendCommand])
+
+  const clearWifiJoinStatus = useCallback(() => {
+    setWifiJoinStatus({ status: 'idle' })
+  }, [])
+
   const update = useCallback((patch: Partial<LedState>) => {
     setState(s => ({ ...s, ...patch }))
     send(patch)
   }, [send])
 
-  return { state, update, status, scanProgress, foundTvs, presets, send, sendCommand: sendImmediate || send, connect, error }
+  return {
+    state,
+    update,
+    status,
+    scanProgress,
+    foundTvs,
+    presets,
+    wifiNetworks,
+    wifiScanning,
+    wifiJoinStatus,
+    scanWifi,
+    joinWifi,
+    clearWifiJoinStatus,
+    send,
+    sendCommand,
+    connect,
+    error,
+  }
 }

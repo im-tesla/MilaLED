@@ -67,10 +67,10 @@ void setup() {
     network.prepare();
 
     Serial.println("[http]  starting web server...");
-    webServer.begin(&cfg, &cfgStore, &engine);
+    webServer.begin(&cfg, &cfgStore, &engine, &network);
 
     Serial.println("[wifi]  connecting (or opening config portal)...");
-    network.begin("MilaLED");  // skips the blocking portal for BLE-only boots
+    network.begin("MilaLED");
 
     Serial.println("[ota]   starting ArduinoOTA...");
     ArduinoOTA.setHostname("milaled");

@@ -7,15 +7,15 @@
 #include <ESP8266HTTPClient.h>
 #endif
 #include <WiFiClient.h>
-#include <WiFiManager.h>
+#include "../wifi/NetworkManager.h"
 #include "../version.h"
 #include "CoreParamRouter.h"
 #ifdef ESP32
 #include "BleServer.h"
 #endif
 
-void MilaWebServer::begin(Config* cfg, ConfigStore* store, EffectsEngine* engine) {
-    _cfg = cfg; _store = store; _engine = engine;
+void MilaWebServer::begin(Config* cfg, ConfigStore* store, EffectsEngine* engine, NetworkManager* network) {
+    _cfg = cfg; _store = store; _engine = engine; _network = network;
 
     // Serve gzipped React app.
     _http.on("/", HTTP_GET, [this]() {
@@ -121,6 +121,34 @@ void MilaWebServer::begin(Config* cfg, ConfigStore* store, EffectsEngine* engine
 
     // Serve other assets; look for .gz variant first.
     _http.onNotFound([this, handleJson]() {
+        // Captive portal detection & redirection when in AP mode
+        if (_network && _network->isAp()) {
+            String uri = _http.uri();
+            String host = _http.hostHeader();
+            String apIp = _network->apIP();
+
+            bool isProbe = (uri == "/hotspot-detect.html" ||
+                            uri == "/generate_204" ||
+                            uri == "/gen_204" ||
+                            uri == "/ncsi.txt" ||
+                            uri == "/connecttest.txt" ||
+                            uri == "/redirect" ||
+                            uri == "/success.txt" ||
+                            uri == "/wpad.dat");
+
+            if (isProbe || (host.length() > 0 && host != apIp && host != "milaled.local" && !host.startsWith(apIp))) {
+                if (!uri.startsWith("/api") && !uri.startsWith("/json") &&
+                    !uri.startsWith("/assets") && !uri.startsWith("/fonts") &&
+                    !uri.endsWith(".js") && !uri.endsWith(".css") &&
+                    !uri.endsWith(".svg") && !uri.endsWith(".woff2") &&
+                    !uri.endsWith(".png") && !uri.endsWith(".ico")) {
+                    _http.sendHeader("Location", String("http://") + apIp + "/", true);
+                    _http.send(302, "text/plain", "");
+                    return;
+                }
+            }
+        }
+
         // Catch any /json* path that registered routes missed (trailing slashes, etc)
         String uri = _http.uri();
         if (uri.startsWith("/json")) {
@@ -202,13 +230,76 @@ void MilaWebServer::begin(Config* cfg, ConfigStore* store, EffectsEngine* engine
         _http.send(200, "application/json", "{\"ok\":true}");
     });
 
-    // REST: erase WiFi credentials and restart into AP/captive-portal mode
+    // REST: Wi-Fi scan
+    _http.on("/api/wifi/scan", HTTP_GET, [this]() {
+        if (!_network) { _http.send(500, "application/json", "{\"error\":\"no network\"}"); return; }
+        int16_t sc = _network->scanStatus();
+        if (sc == -2) {
+            _network->startScan();
+            _http.send(200, "application/json", "{\"scanning\":true,\"networks\":[]}");
+        } else if (sc == -1) {
+            _http.send(200, "application/json", "{\"scanning\":true,\"networks\":[]}");
+        } else {
+            String results = _network->getScanResultsJson();
+            _network->cleanScan();
+            String resp = String("{\"scanning\":false,\"networks\":") + results + "}";
+            _http.send(200, "application/json", resp);
+        }
+    });
+
+    _http.on("/api/wifi/scan", HTTP_POST, [this]() {
+        if (!_network) { _http.send(500, "application/json", "{\"error\":\"no network\"}"); return; }
+        _network->cleanScan();
+        _network->startScan();
+        _http.send(200, "application/json", "{\"scanning\":true,\"networks\":[]}");
+    });
+
+    // REST: Wi-Fi join
+    _http.on("/api/wifi/join", HTTP_POST, [this]() {
+        if (!_network) { _http.send(500, "application/json", "{\"error\":\"no network\"}"); return; }
+        StaticJsonDocument<256> doc;
+        if (deserializeJson(doc, _http.arg("plain"))) {
+            _http.send(400, "application/json", "{\"error\":\"bad json\"}");
+            return;
+        }
+        const char* ssid = doc["ssid"] | "";
+        const char* pass = doc["password"] | "";
+        if (strlen(ssid) == 0) {
+            _http.send(400, "application/json", "{\"error\":\"ssid required\"}");
+            return;
+        }
+        _network->startJoin(ssid, pass);
+        _http.send(200, "application/json", "{\"ok\":true,\"status\":\"connecting\"}");
+    });
+
+    // REST: Wi-Fi status
+    _http.on("/api/wifi/status", HTTP_GET, [this]() {
+        if (!_network) { _http.send(500, "application/json", "{\"error\":\"no network\"}"); return; }
+        StaticJsonDocument<256> doc;
+        NetworkManager::JoinStatus js = _network->joinStatus();
+        if (js == NetworkManager::JOIN_CONNECTING) {
+            doc["status"] = "connecting";
+        } else if (js == NetworkManager::JOIN_SUCCESS || _network->isConnected()) {
+            doc["status"] = "connected";
+        } else if (js == NetworkManager::JOIN_FAILED) {
+            doc["status"] = "failed";
+            doc["error"] = _network->joinError();
+        } else {
+            doc["status"] = _network->isConnected() ? "connected" : "idle";
+        }
+        doc["connected"] = _network->isConnected();
+        doc["isAp"] = _network->isAp();
+        doc["ssid"] = _network->ssid();
+        doc["ip"] = _network->localIP();
+        String out;
+        serializeJson(doc, out);
+        _http.send(200, "application/json", out);
+    });
+
+    // REST: erase WiFi credentials and restart into AP mode
     _http.on("/api/wifi/reset", HTTP_POST, [this]() {
         _http.send(200, "application/json", "{\"ok\":true}");
-        delay(300);
-        WiFiManager wm;
-        wm.resetSettings();
-        ESP.restart();
+        _pendingWifiReset = true;
     });
 
     // REST: strip config — saves and restarts so FastLED reinitialises
@@ -287,10 +378,46 @@ void MilaWebServer::loop() {
 
     if (_pendingWifiReset) {
         delay(300);
-        WiFiManager wm;
-        wm.resetSettings();
+        if (_network) _network->resetSettings();
         ESP.restart();
     }
+
+#ifdef ESP32
+    if (_bleScanPending && _network) {
+        int16_t sc = _network->scanStatus();
+        if (sc >= 0) {
+            _bleScanPending = false;
+            String list = _network->getScanResultsJson();
+            _network->cleanScan();
+            String notify = String("{\"type\":\"wifiScan\",\"networks\":") + list + "}";
+            if (_ble) _ble->notifyJson(notify);
+        }
+    }
+    if (_bleJoinPending && _network) {
+        NetworkManager::JoinStatus js = _network->joinStatus();
+        if (js == NetworkManager::JOIN_SUCCESS) {
+            _bleJoinPending = false;
+            StaticJsonDocument<256> res;
+            res["type"]   = "wifiJoinResult";
+            res["status"] = "connected";
+            res["ip"]     = _network->localIP();
+            res["ssid"]   = _network->ssid();
+            String out;
+            serializeJson(res, out);
+            if (_ble) _ble->notifyJson(out);
+            broadcastState();
+        } else if (js == NetworkManager::JOIN_FAILED) {
+            _bleJoinPending = false;
+            StaticJsonDocument<256> res;
+            res["type"]   = "wifiJoinResult";
+            res["status"] = "failed";
+            res["error"]  = _network->joinError();
+            String out;
+            serializeJson(res, out);
+            if (_ble) _ble->notifyJson(out);
+        }
+    }
+#endif
 
     if (_pendingRestart) {
         delay(500); // let HTTP response + flash write flush
@@ -505,10 +632,64 @@ bool MilaWebServer::handleBleCommand(const char* json, String& response) {
         return true;
     }
 
+    if (!strcmp(action, "wifiDisconnect")) {
+        if (_network) {
+            _network->resetSettings();
+            WiFi.disconnect();
+            broadcastState();
+            response = "{\"type\":\"ack\",\"action\":\"wifiDisconnect\",\"ok\":true}";
+            return true;
+        }
+    }
+
     if (!strcmp(action, "wifiReset")) {
         _pendingWifiReset = true;
         response = "{\"type\":\"ack\",\"action\":\"wifiReset\",\"ok\":true}";
         return true;
+    }
+
+    if (!strcmp(action, "wifiScan")) {
+        if (_network) {
+            _network->cleanScan();
+            _network->startScan();
+            _bleScanPending = true;
+            response = "{\"type\":\"ack\",\"action\":\"wifiScan\",\"ok\":true}";
+            return true;
+        }
+    }
+
+    if (!strcmp(action, "wifiJoin")) {
+        if (_network) {
+            const char* ssid = doc["ssid"] | "";
+            const char* pass = doc["password"] | "";
+            _network->startJoin(ssid, pass);
+            _bleJoinPending = true;
+            response = "{\"type\":\"ack\",\"action\":\"wifiJoin\",\"ok\":true,\"status\":\"connecting\"}";
+            return true;
+        }
+    }
+
+    if (!strcmp(action, "wifiStatus")) {
+        if (_network) {
+            StaticJsonDocument<256> st;
+            st["type"]      = "wifiStatus";
+            st["connected"] = _network->isConnected();
+            st["isAp"]      = _network->isAp();
+            st["ssid"]      = _network->ssid();
+            st["ip"]        = _network->localIP();
+            serializeJson(st, response);
+            return true;
+        }
+    }
+
+    if (!strcmp(action, "wifiReset") || !strcmp(action, "wifiDisconnect")) {
+        if (_network) {
+            _network->resetSettings();
+            WiFi.disconnect(true);
+            broadcastState();
+            response = "{\"type\":\"ack\",\"action\":\"wifiReset\",\"ok\":true}";
+            return true;
+        }
     }
 
     return false;
@@ -530,8 +711,10 @@ String MilaWebServer::buildStateJson() {
     doc["colorSecondary"] = hex;
     doc["palette"]        = _cfg->palette;
     doc["virtualLeds"]    = _engine->virtualCount();
-    doc["ip"]             = WiFi.localIP().toString();
-    doc["ssid"]           = WiFi.SSID();
+    doc["ip"]             = _network ? _network->localIP() : WiFi.localIP().toString();
+    doc["ssid"]           = _network ? _network->ssid() : WiFi.SSID();
+    doc["wifiConnected"]  = _network ? _network->isConnected() : (WiFi.status() == WL_CONNECTED);
+    doc["isAp"]           = _network ? _network->isAp() : false;
 
     JsonArray segs = doc["segments"].to<JsonArray>();
     uint16_t physOff = 0;

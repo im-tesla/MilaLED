@@ -25,7 +25,7 @@ SKIP_GZIP = {".gz", ".woff", ".woff2", ".png", ".jpg", ".jpeg", ".webp", ".ico"}
 
 
 def run(cmd: list[str], cwd: Path) -> None:
-    result = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
+    result = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, shell=(sys.platform == "win32"))
     if result.stdout:
         print(result.stdout, end="")
     if result.returncode != 0:
@@ -41,9 +41,13 @@ def gzip_file(src: Path, dst: Path) -> None:
 
 
 def main() -> None:
+    portable_node = Path.home() / ".node" / "node-v22.14.0-win-x64"
+    if portable_node.exists():
+        os.environ["PATH"] = str(portable_node) + os.pathsep + os.environ.get("PATH", "")
+
     # 1. npm run build
     print("==> Building React app...")
-    npm = "npm.cmd" if sys.platform == "win32" else "npm"
+    npm = shutil.which("npm.cmd") or shutil.which("npm") or str(portable_node / "npm.cmd") or "npm"
     run([npm, "run", "build"], cwd=WEB_DIR)
 
     # 2. Clean data/ (keep presets/ if it exists)
