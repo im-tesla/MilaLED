@@ -17,14 +17,14 @@ import { WifiJoinPanel } from '@/components/shared/WifiJoinPanel'
 import type { LedState, SegmentData, WifiNetwork, WifiJoinStatus } from '@/hooks/useLedState'
 
 const ESP_PINS: { gpio: number; label: string }[] = [
-  { gpio: 2,  label: 'GPIO2  (D4)' },
-  { gpio: 4,  label: 'GPIO4  (D2)' },
-  { gpio: 5,  label: 'GPIO5  (D1)' },
-  { gpio: 12, label: 'GPIO12 (D6)' },
-  { gpio: 13, label: 'GPIO13 (D7)' },
-  { gpio: 14, label: 'GPIO14 (D5)' },
-  { gpio: 15, label: 'GPIO15 (D8)' },
-  { gpio: 16, label: 'GPIO16 (D0)' },
+  { gpio: 2,  label: 'GPIO2' },
+  { gpio: 4,  label: 'GPIO4' },
+  { gpio: 5,  label: 'GPIO5' },
+  { gpio: 12, label: 'GPIO12' },
+  { gpio: 13, label: 'GPIO13' },
+  { gpio: 14, label: 'GPIO14' },
+  { gpio: 15, label: 'GPIO15' },
+  { gpio: 16, label: 'GPIO16' },
   { gpio: 21, label: 'GPIO21' },
   { gpio: 22, label: 'GPIO22' },
   { gpio: 23, label: 'GPIO23' },

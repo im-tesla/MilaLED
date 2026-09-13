@@ -1,18 +1,12 @@
 #include "WebServer.h"
 #include <LittleFS.h>
 #include <ArduinoJson.h>
-#ifdef ESP32
 #include <HTTPClient.h>
-#else
-#include <ESP8266HTTPClient.h>
-#endif
 #include <WiFiClient.h>
 #include "../wifi/NetworkManager.h"
 #include "../version.h"
 #include "CoreParamRouter.h"
-#ifdef ESP32
 #include "BleServer.h"
-#endif
 
 void MilaWebServer::begin(Config* cfg, ConfigStore* store, EffectsEngine* engine, NetworkManager* network) {
     _cfg = cfg; _store = store; _engine = engine; _network = network;
@@ -336,9 +330,7 @@ void MilaWebServer::loop() {
                         String out;
                         serializeJson(resp, out);
                         _ws.broadcastTXT(out.c_str());
-#ifdef ESP32
                         if (_ble) _ble->notifyJson(out);
-#endif
                     }
                 }
                 http.end();
@@ -354,7 +346,6 @@ void MilaWebServer::loop() {
         ESP.restart();
     }
 
-#ifdef ESP32
     if (_bleScanPending && _network) {
         int16_t sc = _network->scanStatus();
         if (sc >= 0) {
@@ -389,7 +380,6 @@ void MilaWebServer::loop() {
             if (_ble) _ble->notifyJson(out);
         }
     }
-#endif
 
     if (_pendingRestart) {
         delay(500); // let HTTP response + flash write flush
@@ -400,9 +390,7 @@ void MilaWebServer::loop() {
 void MilaWebServer::broadcastState() {
     String json = buildStateJson();
     _ws.broadcastTXT(json.c_str());
-#ifdef ESP32
     if (_ble) _ble->notifyState();
-#endif
 }
 
 void MilaWebServer::broadcastScanProgress(uint8_t pct, const char* msg) {
@@ -413,22 +401,10 @@ void MilaWebServer::broadcastScanProgress(uint8_t pct, const char* msg) {
     String out;
     serializeJson(doc, out);
     _ws.broadcastTXT(out.c_str());
-#ifdef ESP32
     if (_ble) _ble->notifyJson(out);
-#endif
 }
 
 void MilaWebServer::streamRobust(File& f, const String& contentType, bool gzip) {
-#ifdef ESP32
-    // The ESP32 Arduino core's WiFiClient::write(Stream&) (used internally by
-    // streamFile()) doesn't verify that each internal chunk write fully
-    // completes — under a weak/congested Wi-Fi link it can silently send
-    // fewer bytes than the Content-Length header already promised, and
-    // Chrome reports ERR_CONTENT_LENGTH_MISMATCH (the page then fails to
-    // load or hangs). This loop retries a short write instead of moving on
-    // to the next chunk, so either the full file gets sent or the
-    // connection is dropped early — a clean error — rather than a
-    // truncated 200 OK.
     size_t fileSize = f.size();
     _http.setContentLength(fileSize);
     if (gzip) _http.sendHeader("Content-Encoding", "gzip");
@@ -456,11 +432,6 @@ void MilaWebServer::streamRobust(File& f, const String& contentType, bool gzip) 
         if (sent < bytesRead) { client.stop(); return; } // couldn't fully send — abort cleanly
         remaining -= bytesRead;
     }
-#else
-    // ESP8266 core's send path (StreamSend's sendSize) already retries
-    // correctly on partial writes, so the framework's streamFile() is safe here.
-    _http.streamFile(f, contentType);
-#endif
 }
 
 void MilaWebServer::handleWsEvent(uint8_t num, WStype_t type, uint8_t* payload, size_t len) {
@@ -542,7 +513,6 @@ void MilaWebServer::applyStripConfig(JsonDocument& doc) {
     if (doc.containsKey("bleEnabled")) _cfg->bleEnabled = doc["bleEnabled"];
 }
 
-#ifdef ESP32
 bool MilaWebServer::handleBleCommand(const char* json, String& response) {
     StaticJsonDocument<512> doc;
     if (deserializeJson(doc, json)) return false;
@@ -657,7 +627,6 @@ bool MilaWebServer::handleBleCommand(const char* json, String& response) {
 
     return false;
 }
-#endif
 
 String MilaWebServer::buildStateJson() {
     StaticJsonDocument<1024> doc;

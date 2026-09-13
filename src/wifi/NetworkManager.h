@@ -1,10 +1,6 @@
 #pragma once
 #include <Arduino.h>
-#ifdef ESP32
 #include <WiFi.h>
-#else
-#include <ESP8266WiFi.h>
-#endif
 #include <vector>
 #include <utility>
 

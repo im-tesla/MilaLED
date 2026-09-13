@@ -1,6 +1,6 @@
 # MilaLED
 
-ESP8266 / ESP32 LED strip controller with a modern mobile-first web interface. Control your WS2815 (or compatible) LED strip over Wi-Fi from any device on your network, or over Bluetooth LE (ESP32 only) without joining the network at all — no app required.
+ESP32 LED strip controller with a modern mobile-first web interface. Control your WS2815 (or compatible) LED strip over Wi-Fi from any device on your network, or over Bluetooth LE without joining the network at all — no app required.
 
 **Works with:** WS2811, WS2812B, WS2815, WS2813, SK6812 | RGB, GRB, and more
 
@@ -29,35 +29,32 @@ ESP8266 / ESP32 LED strip controller with a modern mobile-first web interface. C
 - **Philips Ambilight integration** — mirror your Philips TV's ambient lighting (zero-latency HTTP polling)
 - **Hyperion/HyperHDR support** — WLED-compatible UDP streaming (DDP + RAW, ports 4048 + 19446)
 - **Network scanner** — automatically discover Philips TVs on your LAN
-- **Bluetooth LE control (ESP32)** — an always-on second control channel; pair directly from a phone browser via the [hosted control page](https://im-tesla.github.io/MilaLED/), no Wi-Fi network needed
+- **Bluetooth LE control & provisioning** — an always-on control and Wi-Fi provisioning channel; pair directly from a browser via the [hosted control page](https://im-tesla.github.io/MilaLED/), no app required
 - **Multi-segment strip support** — up to 4 segments with configurable LED counts and half-density skipping
 - **Configurable color order** — RGB, GRB, BRG — match whatever your strip expects
 - **Configurable chipset** — WS2811, WS2812B, WS2815, WS2813, SK6812
 - **Presets** — save and recall your favorite setups
 - **English / Polish** — auto-detected, toggleable
 - **Dark & light theme**
-- **LED status indicator** — blue boot, yellow AP mode, green connected
+- **LED status indicator** — blue boot, green connected
 - **No cloud, no app, no account** — self-contained on the ESP
 
 ## Supported boards
 
 | Platform | Boards | RAM | Flash | Bluetooth |
 |----------|--------|-----|-------|-----------|
-| **ESP8266** | ESP-12E, NodeMCU, Wemos D1 mini, Adafruit HUZZAH | 80 KB | 2-4 MB | — |
-| **ESP32** | ESP32 DevKit, NodeMCU-32S, ESP32-S3, ESP32-C6 | 320-520 KB | 4-16 MB | ✓ |
 | **ESP32-C3** | LOLIN C3 Mini, ESP32-C3 Super Mini | 320 KB | 4 MB | ✓ |
+| **ESP32** | ESP32 DevKit, NodeMCU-32S, ESP32-S3, ESP32-C6 | 320-520 KB | 4-16 MB | ✓ |
 
-ESP8266 has no Bluetooth radio, so BLE control is ESP32-only. Wi-Fi control works identically on every board above.
-
-Virtually any ESP8266 with ≥2MB flash or any ESP32 with ≥4MB flash works. See `platformio.ini` for pre-configured environments — just uncomment your board.
+Virtually any ESP32 with ≥4MB flash works. See `platformio.ini` for pre-configured environments — just select your board.
 
 ## Hardware
 
 | Component | Details |
 |-----------|---------|
-| **Board** | ESP8266 (ESP-12E/NodeMCU/Wemos D1) or ESP32 (DevKit/S3/C6) |
+| **Board** | ESP32 (DevKit/S3/C6/C3) |
 | **Strip** | WS2815 (WS2811/WS2812B/WS2813/SK6812 also supported) |
-| **Data pin** | Configurable (GPIO 2, 4, 5, 12, 13, 14) |
+| **Data pin** | Configurable (GPIO 2, 4, 5, 12, 13, 14, 15, 16, 21, 22, 23, 25, 26, 27, 32, 33) |
 | **Color order** | Configurable (RGB, RBG, GRB, GBR, BRG, BGR) |
 
 Default setup: 120 + 58 physical LEDs across two segments, GPIO2 data pin, GRB color order.
@@ -77,16 +74,12 @@ pip install platformio
 Edit `platformio.ini` and set `default_envs` to your board:
 
 ```ini
-; ESP8266
-default_envs = esp12e     # ESP-12E (default)
-default_envs = nodemcuv2  # NodeMCU 1.0
-default_envs = d1_mini    # Wemos D1 mini
-
-; ESP32
+; ESP32 Boards
+default_envs = esp32-c3-supermini  # ESP32-C3 Super Mini (default)
 default_envs = esp32dev            # ESP32 DevKit / WROOM
 default_envs = nodemcu-32s         # ESP32-S2
 default_envs = esp32-s3-devkitc-1  # ESP32-S3
-default_envs = esp32-c3-supermini  # ESP32-C3 Super Mini
+default_envs = esp32-c6-devkitc-1  # ESP32-C6
 ```
 
 ### 3. Build the web UI
@@ -109,18 +102,14 @@ pio run --target uploadfs
 pio run --target upload
 ```
 
-### 5. Connect
+### 5. Wi-Fi Provisioning & Control via Bluetooth
 
-On first boot, the board creates a Wi-Fi hotspot called **MilaLED**. Connect to it, open a browser, and follow the captive portal to connect to your home network. Once connected, go to `http://milaled.local` (or the IP shown in settings).
+MilaLED uses Bluetooth LE for both live control and wireless Wi-Fi provisioning without any SoftAP or captive portal:
 
-### 6. Bluetooth control (ESP32 only)
-
-ESP32 boards also advertise a Bluetooth LE control service alongside Wi-Fi, always on by default — no need to join the network at all.
-
-- **Hosted control page:** open **https://im-tesla.github.io/MilaLED/** on Chrome (Android) or the [Bluefy](https://apps.apple.com/app/bluefy-web-ble-browser/id1492822055) app (iOS — Safari itself doesn't support Web Bluetooth) and tap **Connect via Bluetooth**.
-- **Disable it:** toggle **Bluetooth control** off in Settings → Strip if you'd rather the radio not always be advertising, or to free up radio time if you're streaming Hyperion over Wi-Fi and notice jitter.
-
-v1 Bluetooth scope covers live control — power, effects, palette, brightness, speed, intensity, colors, and segment display. Presets, strip reconfiguration, Ambilight scan, and Wi-Fi reset stay Wi-Fi-only for now.
+1. Open **https://im-tesla.github.io/MilaLED/** in Google Chrome (Desktop, Android) or the [Bluefy](https://apps.apple.com/app/bluefy-web-ble-browser/id1492822055) app (iOS).
+2. Tap **Connect via Bluetooth** and pair with your **MilaLED** device.
+3. In the **Settings** tab, scan for your 2.4 GHz Wi-Fi network, enter the password, and click **Connect**.
+4. Once connected, your strip displays its assigned IP address (e.g. `http://192.168.1.166` or `http://milaled.local`) where you can also access the web interface directly on your local network.
 
 ## Development
 

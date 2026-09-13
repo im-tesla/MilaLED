@@ -1,5 +1,4 @@
 #pragma once
-#ifdef ESP32
 #include <Arduino.h>
 #include <NimBLEDevice.h>
 #include "../config/ConfigStore.h"
@@ -57,4 +56,3 @@ private:
     void handleCommand(const char* json);
     String buildCoreStateJson();
 };
-#endif

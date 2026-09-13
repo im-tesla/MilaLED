@@ -6,19 +6,15 @@
 #include "leds/EffectsEngine.h"
 #include "wifi/NetworkManager.h"
 #include "net/WebServer.h"
-#ifdef ESP32
 #include "net/BleServer.h"
 #include <esp_wifi.h>
-#endif
 
 static Config         cfg;
 static ConfigStore    cfgStore;
 static EffectsEngine  engine;
 static NetworkManager network;
 static MilaWebServer  webServer;
-#ifdef ESP32
 static BleServer      bleServer;
-#endif
 
 static uint32_t lastSave = 0;
 
@@ -114,14 +110,12 @@ void setup() {
 
     LittleFS.mkdir("/presets"); // ensure preset directory exists
 
-#ifdef ESP32
     if (cfg.bleEnabled) {
         Serial.println("[ble]   starting BLE server...");
         bleServer.begin(&cfg, &cfgStore, &engine);
         webServer.setBleServer(&bleServer);
         bleServer.setWebServer(&webServer);
     }
-#endif
 
     // Initialize the Wi-Fi/LwIP stack in STA mode
     network.prepare();
@@ -156,9 +150,7 @@ void loop() {
     engine.ambilightPoll();   // HTTP poll TV (non-blocking, skips tick gate)
     network.loop();           // MDNS.update() / join watcher
     webServer.loop();         // HTTP + WebSocket handlers
-#ifdef ESP32
     bleServer.loop();         // drains BLE command queue
-#endif
     // Pause FastLED output during active Wi-Fi handshake so RMT interrupts
     // on ESP32-C3 do not disrupt 802.11 auth / 4-way EAPOL timing.
     if (network.joinStatus() != NetworkManager::JOIN_CONNECTING) {

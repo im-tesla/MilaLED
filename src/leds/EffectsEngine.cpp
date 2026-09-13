@@ -1,10 +1,6 @@
 #include "EffectsEngine.h"
 
-#ifdef ESP32
 #include <WiFi.h>
-#else
-#include <ESP8266WiFi.h>
-#endif
 #include <WiFiUdp.h>
 static WiFiUDP _hyRaw;    // port 19446 — RAW RGB
 static WiFiUDP _hyDdp;    // port 4048  — DDP (default Hyperion WLED protocol)
@@ -178,16 +174,11 @@ void EffectsEngine::begin(const Config& cfg) {
     AUX_LED(CHIP,  5, ORDER) AUX_LED(CHIP, 12, ORDER) \
     AUX_LED(CHIP, 21, ORDER) AUX_LED(CHIP, 32, ORDER) \
 }
-#elif defined(CONFIG_IDF_TARGET_ESP32C3) || defined(CONFIG_IDF_TARGET_ESP32C6)
+#else
 #define AUX_PINS(CHIP, ORDER) { _auxPinCount = 0; \
     AUX_LED(CHIP, 21, ORDER) \
     AUX_LED(CHIP,  2, ORDER) \
     AUX_LED(CHIP,  4, ORDER) \
-    AUX_LED(CHIP,  5, ORDER) \
-}
-#else  // ESP8266
-#define AUX_PINS(CHIP, ORDER) { _auxPinCount = 0; \
-    AUX_LED(CHIP,  2, ORDER) AUX_LED(CHIP,  4, ORDER) \
     AUX_LED(CHIP,  5, ORDER) \
 }
 #endif

@@ -1,5 +1,4 @@
 #include "BleServer.h"
-#ifdef ESP32
 #include <ArduinoJson.h>
 #include <cstring>
 #include "CoreParamRouter.h"
@@ -246,4 +245,3 @@ String BleServer::buildCoreStateJson() {
     serializeJson(doc, out);
     return out;
 }
-#endif

@@ -1,15 +1,10 @@
 #include "NetworkManager.h"
 #include <ArduinoJson.h>
-#ifdef ESP32
 #include <ESPmDNS.h>
 #include <esp_wifi.h>
 #include <esp_system.h>
 #include <esp_coexist.h>
 #include <NimBLEDevice.h>
-#else
-#include <ESP8266mDNS.h>
-#include <user_interface.h>
-#endif
 #include <vector>
 #include <algorithm>
 
@@ -59,7 +54,6 @@ void NetworkManager::begin(const char*) {
     WiFi.mode(WIFI_STA);
     WiFi.setAutoReconnect(false);
 
-#ifdef ESP32
     WiFi.setMinSecurity(WIFI_AUTH_OPEN);
     WiFi.setTxPower(WIFI_POWER_15dBm);
     wifi_country_t country = {"PL", 1, 13, 20, WIFI_COUNTRY_POLICY_MANUAL};
@@ -111,7 +105,6 @@ void NetworkManager::begin(const char*) {
             }
         }
     });
-#endif
 
     // Check if we have saved Wi-Fi credentials from previous setup
     bool hasCredentials = (WiFi.SSID().length() > 0);
@@ -160,19 +153,13 @@ String NetworkManager::macAddress() const {
 }
 
 void NetworkManager::loop() {
-#ifdef ESP8266
-    MDNS.update();
-#endif
-
     if (_joinStatus == JOIN_CONNECTING) {
         if (WiFi.status() == WL_CONNECTED) {
             _joinStatus = JOIN_SUCCESS;
             _joinError = "";
             WiFi.setAutoReconnect(true);
-#ifdef ESP32
             esp_coex_preference_set(ESP_COEX_PREFER_WIFI);
             NimBLEDevice::startAdvertising();
-#endif
             Serial.printf("[wifi]  joined network successfully! IP: %s\n", WiFi.localIP().toString().c_str());
             MDNS.begin("milaled");
             MDNS.addService("wled", "_tcp", 80);
@@ -182,17 +169,13 @@ void NetworkManager::loop() {
             if (_joinError.length() == 0) {
                 _joinError = "Authentication failed (wrong password)";
             }
-#ifdef ESP32
             esp_coex_preference_set(ESP_COEX_PREFER_BALANCE);
             NimBLEDevice::getAdvertising()->start();
-#endif
             Serial.println("[wifi]  join failed: auth error");
         } else if (millis() - _joinStartTime > 25000) {
             _joinStatus = JOIN_FAILED;
-#ifdef ESP32
             esp_coex_preference_set(ESP_COEX_PREFER_BALANCE);
             NimBLEDevice::getAdvertising()->start();
-#endif
             if (_joinError.length() == 0) {
                 if (_lastDisconnectReason > 0) {
                     _joinError = String("Connection failed: ") + wifiReasonDesc(_lastDisconnectReason) + " (" + String(_lastDisconnectReason) + ")";
@@ -207,11 +190,7 @@ void NetworkManager::loop() {
 
 void NetworkManager::resetSettings() {
     Serial.println("[wifi]  erasing saved WiFi credentials...");
-#ifdef ESP32
     WiFi.disconnect(true, true);
-#else
-    WiFi.disconnect(true);
-#endif
     WiFi.mode(WIFI_STA);
     delay(100);
 }
@@ -225,11 +204,7 @@ void NetworkManager::startScan() {
         WiFi.scanDelete();
     }
     Serial.println("[wifi]  starting async WiFi scan...");
-#ifdef ESP32
     WiFi.scanNetworks(true, false, false, 100);
-#else
-    WiFi.scanNetworks(true);
-#endif
 }
 
 int16_t NetworkManager::scanStatus() {
@@ -262,12 +237,8 @@ String NetworkManager::getScanResultsJson() {
         if (s.length() == 0) continue;
 
         int32_t r = WiFi.RSSI(i);
-#ifdef ESP32
         bool sec = (WiFi.encryptionType(i) != WIFI_AUTH_OPEN);
         _channelCache.push_back({s, (uint8_t)WiFi.channel(i)});
-#else
-        bool sec = (WiFi.encryptionType(i) != ENC_TYPE_NONE);
-#endif
 
         bool exists = false;
         for (auto& item : list) {
@@ -344,11 +315,9 @@ void NetworkManager::startJoin(const String& ssid, const String& password) {
         Serial.printf("[wifi]  target '%s' is on channel %d\n", cleanSsid.c_str(), targetChannel);
     }
 
-#ifdef ESP32
     esp_coex_preference_set(ESP_COEX_PREFER_WIFI);
     NimBLEDevice::getAdvertising()->stop();
     WiFi.setMinSecurity(WIFI_AUTH_OPEN);
-#endif
 
     WiFi.mode(WIFI_STA);
     WiFi.disconnect(false, false);
@@ -356,9 +325,7 @@ void NetworkManager::startJoin(const String& ssid, const String& password) {
 
     WiFi.persistent(true);
     WiFi.setAutoReconnect(false);
-#ifdef ESP32
     WiFi.setTxPower(WIFI_POWER_15dBm);
-#endif
 
     WiFi.begin(cleanSsid.c_str(), cleanPass.c_str());
 }

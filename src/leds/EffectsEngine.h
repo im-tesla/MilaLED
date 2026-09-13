@@ -59,7 +59,7 @@ private:
 
     // Auxiliary controllers mirror the main LED buffer to extra GPIOs.
     // They point directly at _leds so there's no arbitrary LED count limit.
-    // C3 gets 1 aux (GPIO21), ESP32 gets 4, ESP8266 gets 3.
+    // C3/C6 gets 4 aux, ESP32/S2/S3 gets 6 aux pins.
     uint8_t  _auxPinCount = 0;
 
     EffectBase*  _active    = nullptr;

@@ -1,12 +1,7 @@
 #pragma once
-#ifdef ESP32
 #include <WebServer.h>
 using WebServerClass = WebServer;
 class BleServer;
-#else
-#include <ESP8266WebServer.h>
-using WebServerClass = ESP8266WebServer;
-#endif
 #include <WebSocketsServer.h>
 #include <FS.h>
 #include <ArduinoJson.h>
@@ -23,10 +18,8 @@ public:
     void broadcastScanProgress(uint8_t pct, const char* msg);
     void setNetworkManager(NetworkManager* network) { _network = network; }
     String buildStateJson();
-#ifdef ESP32
     void setBleServer(BleServer* ble) { _ble = ble; }
     bool handleBleCommand(const char* json, String& response);
-#endif
 
 private:
     WebServerClass   _http{80};
@@ -35,9 +28,7 @@ private:
     ConfigStore*     _store   = nullptr;
     EffectsEngine*   _engine  = nullptr;
     NetworkManager*  _network = nullptr;
-#ifdef ESP32
-    BleServer*       _ble = nullptr;
-#endif
+    BleServer*       _ble     = nullptr;
     bool             _pendingRestart   = false;
     bool             _pendingWifiReset = false;
     bool             _scanActive       = false;
