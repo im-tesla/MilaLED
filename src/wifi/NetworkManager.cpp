@@ -155,7 +155,12 @@ void NetworkManager::startScan() {
         WiFi.scanDelete();
     }
     Serial.println("[wifi]  starting async WiFi scan...");
+#ifdef ESP32
+    // Fast active scan: 100ms per channel (down from default 300ms)
+    WiFi.scanNetworks(true, false, false, 100);
+#else
     WiFi.scanNetworks(true);
+#endif
 }
 
 int16_t NetworkManager::scanStatus() {
@@ -215,9 +220,9 @@ String NetworkManager::getScanResultsJson() {
         return a.rssi > b.rssi;
     });
 
-    // Limit to top 16 networks
-    if (list.size() > 16) {
-        list.resize(16);
+    // Limit to top 12 networks for fast transmission over BLE
+    if (list.size() > 12) {
+        list.resize(12);
     }
 
     StaticJsonDocument<1536> doc;

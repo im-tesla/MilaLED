@@ -200,6 +200,9 @@ void BleServer::notifyJson(const String& json) {
 
         offset += chunkLen;
         seq++;
+        if (more) {
+            delay(12); // Pacing between chunks prevents BLE controller tx buffer drops
+        }
     } while (offset < len);
 }
 

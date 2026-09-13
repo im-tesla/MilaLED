@@ -135,6 +135,10 @@ export function useLedState(wsUrl: string) {
     setWifiScanning(true)
     if (TRANSPORT === 'ble') {
       sendCommand({ action: 'wifiScan' })
+      // Safety timeout in case a BLE notification is dropped
+      setTimeout(() => {
+        setWifiScanning(scanning => (scanning ? false : false))
+      }, 10000)
     } else {
       fetch('/api/wifi/scan', { method: 'POST' })
         .catch(() => {})
@@ -144,9 +148,9 @@ export function useLedState(wsUrl: string) {
             fetch('/api/wifi/scan')
               .then(r => r.json())
               .then(data => {
-                if (data.scanning && attempts < 10) {
+                if (data.scanning && attempts < 12) {
                   attempts++
-                  setTimeout(check, 1000)
+                  setTimeout(check, 600)
                 } else {
                   setWifiNetworks(data.networks || [])
                   setWifiScanning(false)
@@ -154,7 +158,7 @@ export function useLedState(wsUrl: string) {
               })
               .catch(() => setWifiScanning(false))
           }
-          setTimeout(check, 1500)
+          setTimeout(check, 800)
         })
     }
   }, [sendCommand])

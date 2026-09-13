@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   WifiHigh,
@@ -53,12 +53,14 @@ export function WifiJoinPanel({
   const [manualSsid, setManualSsid] = useState('')
   const [showJoinForm, setShowJoinForm] = useState(!isConnected)
   const [confirmReset, setConfirmReset] = useState(false)
+  const hasAutoScannedRef = useRef(false)
 
   const activeSsid = isManual ? manualSsid : selectedSsid
 
-  // Auto-trigger initial scan if no networks yet and joining form is open
+  // Auto-trigger initial scan once if no networks yet and joining form is open
   useEffect(() => {
-    if (showJoinForm && networks.length === 0 && !scanning) {
+    if (showJoinForm && networks.length === 0 && !scanning && !hasAutoScannedRef.current) {
+      hasAutoScannedRef.current = true
       onScan()
     }
   }, [showJoinForm, networks.length, scanning, onScan])
