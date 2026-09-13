@@ -5,7 +5,8 @@
 #else
 #include <ESP8266WiFi.h>
 #endif
-#include <DNSServer.h>
+#include <vector>
+#include <utility>
 
 class NetworkManager {
 public:
@@ -17,11 +18,10 @@ public:
     };
 
     void prepare();
-    void begin(const char* apName = "MilaLED");
+    void begin(const char* apName = nullptr);
     bool isConnected() const;
-    bool isAp() const;
+    bool isAp() const { return false; }
     String localIP() const;
-    String apIP() const;
     String ssid() const;
     String macAddress() const;
     void loop();
@@ -40,12 +40,11 @@ public:
     void clearJoinStatus() { _joinStatus = JOIN_IDLE; _joinError = ""; }
 
 private:
-    DNSServer    _dnsServer;
-    bool         _isAp          = false;
-    JoinStatus   _joinStatus    = JOIN_IDLE;
-    String       _joinError     = "";
-    uint32_t     _joinStartTime   = 0;
-    uint8_t      _disconnectCount = 0;
-    String       _targetSsid      = "";
-    String       _apName          = "MilaLED";
+    JoinStatus   _joinStatus           = JOIN_IDLE;
+    String       _joinError            = "";
+    uint32_t     _joinStartTime        = 0;
+    uint8_t      _disconnectCount      = 0;
+    uint8_t      _lastDisconnectReason = 0;
+    String       _targetSsid           = "";
+    std::vector<std::pair<String, uint8_t>> _channelCache;
 };

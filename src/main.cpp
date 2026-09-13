@@ -8,6 +8,7 @@
 #include "net/WebServer.h"
 #ifdef ESP32
 #include "net/BleServer.h"
+#include <esp_wifi.h>
 #endif
 
 static Config         cfg;
@@ -20,6 +21,67 @@ static BleServer      bleServer;
 #endif
 
 static uint32_t lastSave = 0;
+
+static void handleSerialCommands() {
+    static String inputLine = "";
+    while (Serial.available()) {
+        char c = (char)Serial.read();
+        if (c == '\r' || c == '\n') {
+            inputLine.trim();
+            if (inputLine.length() > 0) {
+                Serial.printf("[cmd] received: '%s'\n", inputLine.c_str());
+                if (inputLine == "status") {
+                    Serial.printf("[status] Wi-Fi: %s, SSID: '%s', IP: %s, RSSI: %d, MAC: %s\n",
+                        network.isConnected() ? "CONNECTED" : "DISCONNECTED",
+                        network.ssid().c_str(), network.localIP().c_str(),
+                        WiFi.RSSI(), network.macAddress().c_str());
+                } else if (inputLine == "scan") {
+                    Serial.println("[cmd] scanning networks...");
+                    int n = WiFi.scanNetworks(false, false, false, 250);
+                    Serial.printf("[cmd] scan complete: found %d networks\n", n);
+                    uint16_t apCount = n;
+                    std::vector<wifi_ap_record_t> records(apCount);
+                    if (esp_wifi_scan_get_ap_records(&apCount, records.data()) == ESP_OK) {
+                        for (uint16_t i = 0; i < apCount; i++) {
+                            const char* ciphers[] = {"NONE", "WEP40", "WEP104", "TKIP", "CCMP", "TKIP_CCMP", "AES_CMAC", "UNKNOWN"};
+                            const char* pairCipher = (records[i].pairwise_cipher <= 6) ? ciphers[records[i].pairwise_cipher] : "OTHER";
+                            const char* grpCipher = (records[i].group_cipher <= 6) ? ciphers[records[i].group_cipher] : "OTHER";
+                            Serial.printf("  [%02d] SSID: '%-20s' CH: %2d  RSSI: %3d  AUTH: %d  PAIR: %-9s  GRP: %-9s  PHY: %s%s%s\n",
+                                i, records[i].ssid, records[i].primary, records[i].rssi,
+                                (int)records[i].authmode, pairCipher, grpCipher,
+                                records[i].phy_11b ? "b" : "",
+                                records[i].phy_11g ? "g" : "",
+                                records[i].phy_11n ? "n" : "");
+                        }
+                    }
+                    WiFi.scanDelete();
+                } else if (inputLine.startsWith("join ")) {
+                    int spaceIdx = inputLine.indexOf(' ', 5);
+                    String s, p;
+                    if (spaceIdx > 0) {
+                        s = inputLine.substring(5, spaceIdx);
+                        p = inputLine.substring(spaceIdx + 1);
+                    } else {
+                        s = inputLine.substring(5);
+                        p = "";
+                    }
+                    s.trim();
+                    p.trim();
+                    Serial.printf("[cmd] joining '%s'...\n", s.c_str());
+                    network.startJoin(s, p);
+                } else if (inputLine == "forget") {
+                    network.resetSettings();
+                    Serial.println("[cmd] settings erased");
+                } else if (inputLine == "restart") {
+                    ESP.restart();
+                }
+                inputLine = "";
+            }
+        } else {
+            inputLine += c;
+        }
+    }
+}
 
 void setup() {
     Serial.begin(115200);
@@ -61,35 +123,26 @@ void setup() {
     }
 #endif
 
-    // Initialize the Wi-Fi/LwIP stack without attempting a connection yet.
-    // WebServer requires this stack, while BLE must start before any blocking
-    // WiFiManager connection attempt.
+    // Initialize the Wi-Fi/LwIP stack in STA mode
     network.prepare();
 
     Serial.println("[http]  starting web server...");
     webServer.begin(&cfg, &cfgStore, &engine, &network);
 
-    Serial.println("[wifi]  connecting (or opening config portal)...");
-    network.begin("MilaLED");
+    Serial.println("[wifi]  starting network manager...");
+    network.begin();
 
     Serial.println("[ota]   starting ArduinoOTA...");
     ArduinoOTA.setHostname("milaled");
     ArduinoOTA.begin();
 
-    // Show status on strip: green if connected, yellow blink if AP mode
+    // Show status on strip: green if connected, none if in BLE mode
     if (network.isConnected()) {
         Serial.print("[wifi]  connected! "); Serial.println(network.localIP().c_str());
         engine.setStatus(EffectsEngine::STATUS_OK);
-#ifdef ESP32
-    } else if (cfg.bleEnabled) {
-        // BLE is the active control path even when Wi-Fi is unavailable.
-        // Do not leave the permanent AP blink status in front of effects.
-        Serial.println("[wifi]  unavailable — BLE-only mode");
-        engine.setStatus(EffectsEngine::STATUS_NONE);
-#endif
     } else {
-        Serial.println("[wifi]  AP mode — connect to 'MilaLED' hotspot");
-        engine.setStatus(EffectsEngine::STATUS_AP_MODE);
+        Serial.println("[wifi]  disconnected — BLE mode");
+        engine.setStatus(EffectsEngine::STATUS_NONE);
     }
 
     Serial.println("──────────────────");
@@ -97,15 +150,20 @@ void setup() {
 }
 
 void loop() {
+    handleSerialCommands();
     hyperionLoop();           // UDP receive (ports 19446+4048)
     engine.flushHyperion();   // UDP→LEDs at zero latency
     engine.ambilightPoll();   // HTTP poll TV (non-blocking, skips tick gate)
-    network.loop();           // MDNS.update()
+    network.loop();           // MDNS.update() / join watcher
     webServer.loop();         // HTTP + WebSocket handlers
 #ifdef ESP32
-    bleServer.loop(); // drains any command reassembled on the NimBLE task and applies it here
+    bleServer.loop();         // drains BLE command queue
 #endif
-    engine.tick();            // LED frame update (20ms throttled)
+    // Pause FastLED output during active Wi-Fi handshake so RMT interrupts
+    // on ESP32-C3 do not disrupt 802.11 auth / 4-way EAPOL timing.
+    if (network.joinStatus() != NetworkManager::JOIN_CONNECTING) {
+        engine.tick();        // LED frame update (20ms throttled)
+    }
     ArduinoOTA.handle();      // OTA update check
 
     // Persist continuous params (brightness/speed/etc.) every 30s without broadcasting.

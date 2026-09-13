@@ -15,52 +15,94 @@
 
 static bool _prepared = false;
 
+static const char* wifiReasonDesc(uint8_t reason) {
+    switch (reason) {
+        case 1:   return "UNSPECIFIED";
+        case 2:   return "AUTH_EXPIRE";
+        case 3:   return "AUTH_LEAVE";
+        case 4:   return "ASSOC_EXPIRE";
+        case 5:   return "ASSOC_TOOMANY";
+        case 6:   return "NOT_AUTHED";
+        case 7:   return "NOT_ASSOCED";
+        case 8:   return "ASSOC_LEAVE";
+        case 9:   return "ASSOC_NOT_AUTHED";
+        case 13:  return "IE_INVALID";
+        case 14:  return "MIC_FAILURE";
+        case 15:  return "4WAY_HANDSHAKE_TIMEOUT";
+        case 16:  return "GROUP_KEY_UPDATE_TIMEOUT";
+        case 17:  return "IE_IN_4WAY_DIFFERS";
+        case 18:  return "GROUP_CIPHER_INVALID";
+        case 19:  return "PAIRWISE_CIPHER_INVALID";
+        case 20:  return "AKMP_INVALID";
+        case 21:  return "UNSUPP_RSN_IE_VERSION";
+        case 22:  return "INVALID_RSN_IE_CAP";
+        case 23:  return "802_1X_AUTH_FAILED";
+        case 24:  return "CIPHER_SUITE_REJECTED";
+        case 200: return "BEACON_TIMEOUT";
+        case 201: return "NO_AP_FOUND";
+        case 202: return "AUTH_FAIL";
+        case 203: return "ASSOC_FAIL";
+        case 204: return "HANDSHAKE_TIMEOUT";
+        case 205: return "CONNECTION_FAIL";
+        default:  return "UNKNOWN";
+    }
+}
+
 void NetworkManager::prepare() {
     if (_prepared) return;
-#ifdef ESP8266
-    WiFi.mode(WIFI_AP_STA);
-#elif defined(ESP32)
-    WiFi.mode(WIFI_AP_STA);
-#endif
+    WiFi.mode(WIFI_STA);
     _prepared = true;
 }
 
-void NetworkManager::begin(const char* apName) {
-    _apName = apName;
+void NetworkManager::begin(const char*) {
     prepare();
+    WiFi.mode(WIFI_STA);
+    WiFi.setAutoReconnect(false);
 
 #ifdef ESP32
+    WiFi.setMinSecurity(WIFI_AUTH_OPEN);
+
     WiFi.onEvent([this](WiFiEvent_t event, WiFiEventInfo_t info) {
         if (event == ARDUINO_EVENT_WIFI_STA_START) {
             Serial.println("[wifi]  STA started");
         } else if (event == ARDUINO_EVENT_WIFI_STA_CONNECTED) {
             Serial.println("[wifi]  STA associated with AP");
         } else if (event == ARDUINO_EVENT_WIFI_STA_GOT_IP) {
-            Serial.printf("[wifi]  STA got IP: %s\n", IPAddress(info.got_ip.ip_info.ip.addr).toString().c_str());
+            IPAddress ip(info.got_ip.ip_info.ip.addr);
+            Serial.printf("[wifi]  STA got IP: %s\n", ip.toString().c_str());
             _joinStatus = JOIN_SUCCESS;
-            _isAp = false;
-            _dnsServer.stop();
+            _joinError = "";
+            esp_coex_preference_set(ESP_COEX_PREFER_BALANCE);
+            NimBLEDevice::getAdvertising()->start();
             MDNS.begin("milaled");
             MDNS.addService("wled", "_tcp", 80);
             MDNS.addServiceTxt("wled", "_tcp", "mac", WiFi.macAddress().c_str());
         } else if (event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
             uint8_t reason = info.wifi_sta_disconnected.reason;
+            _lastDisconnectReason = reason;
             _disconnectCount++;
-            Serial.printf("[wifi]  STA disconnected (count %d), reason: %d\n", _disconnectCount, reason);
+            Serial.printf("[wifi]  STA disconnected (count %d), reason: %d (%s)\n",
+                _disconnectCount, reason, wifiReasonDesc(reason));
+
             if (_joinStatus == JOIN_CONNECTING) {
-                if (reason == WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT || reason == WIFI_REASON_AUTH_FAIL) {
-                    if (_disconnectCount >= 2) {
+                if (reason == WIFI_REASON_AUTH_FAIL) {
+                    if (_disconnectCount >= 3) {
                         _joinStatus = JOIN_FAILED;
                         _joinError = "Authentication failed (wrong password)";
+                    }
+                } else if (reason == WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT) {
+                    if (_disconnectCount >= 4) {
+                        _joinStatus = JOIN_FAILED;
+                        _joinError = "Handshake timed out (check password / router)";
                     }
                 } else if (reason == WIFI_REASON_NO_AP_FOUND) {
                     if (_disconnectCount >= 4) {
                         _joinStatus = JOIN_FAILED;
-                        _joinError = "Network not found (check 2.4 GHz)";
+                        _joinError = "Network not found (ensure 2.4 GHz)";
                     }
-                } else if (_disconnectCount >= 6) {
+                } else if (_disconnectCount >= 10) {
                     _joinStatus = JOIN_FAILED;
-                    _joinError = "Connection rejected by router (reason " + String(reason) + ")";
+                    _joinError = String("Disconnected by router: ") + wifiReasonDesc(reason) + " (" + String(reason) + ")";
                 }
             }
         }
@@ -69,47 +111,25 @@ void NetworkManager::begin(const char* apName) {
 
     // Check if we have saved Wi-Fi credentials from previous setup
     bool hasCredentials = (WiFi.SSID().length() > 0);
-    bool connected = false;
-
     if (hasCredentials) {
-        Serial.printf("[wifi]  attempting connection to '%s'...\n", WiFi.SSID().c_str());
-        WiFi.mode(WIFI_STA);
+        Serial.printf("[wifi]  attempting connection to saved SSID '%s'...\n", WiFi.SSID().c_str());
         WiFi.begin();
 
-        // Wait up to 10 seconds for connection
+        // Wait up to 6 seconds at boot for immediate connection
         uint32_t start = millis();
-        while (millis() - start < 10000) {
+        while (millis() - start < 6000) {
             if (WiFi.status() == WL_CONNECTED) {
-                connected = true;
-                break;
+                Serial.printf("[wifi]  connected! IP: %s\n", WiFi.localIP().toString().c_str());
+                MDNS.begin("milaled");
+                MDNS.addService("wled", "_tcp", 80);
+                MDNS.addServiceTxt("wled", "_tcp", "mac", WiFi.macAddress().c_str());
+                return;
             }
             delay(50);
         }
-    }
-
-    if (connected) {
-        _isAp = false;
-        Serial.print("[wifi]  connected! IP: ");
-        Serial.println(WiFi.localIP().toString());
-        MDNS.begin("milaled");
-        MDNS.addService("wled", "_tcp", 80);
-        MDNS.addServiceTxt("wled", "_tcp", "mac", WiFi.macAddress().c_str());
+        Serial.println("[wifi]  saved network connecting in background");
     } else {
-        // Fallback to AP mode with Captive Portal DNS server
-        _isAp = true;
-        WiFi.mode(WIFI_AP_STA);
-        WiFi.softAP(apName);
-        delay(100);
-
-        _dnsServer.setErrorReplyCode(DNSReplyCode::NoError);
-        _dnsServer.start(53, "*", WiFi.softAPIP());
-
-        Serial.printf("[wifi]  AP mode '%s' started at IP: %s\n",
-            apName, WiFi.softAPIP().toString().c_str());
-
-        MDNS.begin("milaled");
-        MDNS.addService("wled", "_tcp", 80);
-        MDNS.addServiceTxt("wled", "_tcp", "mac", WiFi.macAddress().c_str());
+        Serial.println("[wifi]  no saved credentials; BLE ready for provisioning");
     }
 }
 
@@ -117,19 +137,11 @@ bool NetworkManager::isConnected() const {
     return WiFi.status() == WL_CONNECTED;
 }
 
-bool NetworkManager::isAp() const {
-    return _isAp;
-}
-
 String NetworkManager::localIP() const {
     if (isConnected()) {
         return WiFi.localIP().toString();
     }
-    return WiFi.softAPIP().toString();
-}
-
-String NetworkManager::apIP() const {
-    return WiFi.softAPIP().toString();
+    return "";
 }
 
 String NetworkManager::ssid() const {
@@ -144,9 +156,6 @@ String NetworkManager::macAddress() const {
 }
 
 void NetworkManager::loop() {
-    if (_isAp) {
-        _dnsServer.processNextRequest();
-    }
 #ifdef ESP8266
     MDNS.update();
 #endif
@@ -154,32 +163,39 @@ void NetworkManager::loop() {
     if (_joinStatus == JOIN_CONNECTING) {
         if (WiFi.status() == WL_CONNECTED) {
             _joinStatus = JOIN_SUCCESS;
-            _isAp = false;
-            _dnsServer.stop();
+            _joinError = "";
+#ifdef ESP32
+            esp_coex_preference_set(ESP_COEX_PREFER_BALANCE);
+            NimBLEDevice::getAdvertising()->start();
+#endif
             Serial.printf("[wifi]  joined network successfully! IP: %s\n", WiFi.localIP().toString().c_str());
             MDNS.begin("milaled");
             MDNS.addService("wled", "_tcp", 80);
             MDNS.addServiceTxt("wled", "_tcp", "mac", WiFi.macAddress().c_str());
-        } else if (WiFi.status() == WL_CONNECT_FAILED) {
-            _joinStatus = JOIN_FAILED;
-            _joinError = "Authentication failed (wrong password)";
-            Serial.println("[wifi]  join failed: auth error");
-        } else if (millis() - _joinStartTime > 20000) {
+        } else if (WiFi.status() == WL_CONNECT_FAILED && _disconnectCount >= 3) {
             _joinStatus = JOIN_FAILED;
             if (_joinError.length() == 0) {
-                _joinError = "Connection timed out";
+                _joinError = "Authentication failed (wrong password)";
             }
-            Serial.println("[wifi]  join failed: timeout");
-        }
-    }
-
-    if (_joinStatus == JOIN_FAILED && !isConnected()) {
-        if (!_isAp) {
-            _isAp = true;
-            WiFi.mode(WIFI_AP_STA);
-            WiFi.softAP(_apName.c_str());
-            _dnsServer.start(53, "*", WiFi.softAPIP());
-            Serial.println("[wifi]  restored fallback AP mode");
+#ifdef ESP32
+            esp_coex_preference_set(ESP_COEX_PREFER_BALANCE);
+            NimBLEDevice::getAdvertising()->start();
+#endif
+            Serial.println("[wifi]  join failed: auth error");
+        } else if (millis() - _joinStartTime > 25000) {
+            _joinStatus = JOIN_FAILED;
+#ifdef ESP32
+            esp_coex_preference_set(ESP_COEX_PREFER_BALANCE);
+            NimBLEDevice::getAdvertising()->start();
+#endif
+            if (_joinError.length() == 0) {
+                if (_lastDisconnectReason > 0) {
+                    _joinError = String("Connection failed: ") + wifiReasonDesc(_lastDisconnectReason) + " (" + String(_lastDisconnectReason) + ")";
+                } else {
+                    _joinError = "Connection timed out";
+                }
+            }
+            Serial.printf("[wifi]  join failed: timeout (%s)\n", _joinError.c_str());
         }
     }
 }
@@ -191,13 +207,13 @@ void NetworkManager::resetSettings() {
 #else
     WiFi.disconnect(true);
 #endif
+    WiFi.mode(WIFI_STA);
     delay(100);
 }
 
 void NetworkManager::startScan() {
     int16_t status = WiFi.scanComplete();
     if (status == -1) {
-        // scan already running
         return;
     }
     if (status >= 0) {
@@ -205,7 +221,6 @@ void NetworkManager::startScan() {
     }
     Serial.println("[wifi]  starting async WiFi scan...");
 #ifdef ESP32
-    // Fast active scan: 100ms per channel (down from default 300ms)
     WiFi.scanNetworks(true, false, false, 100);
 #else
     WiFi.scanNetworks(true);
@@ -232,22 +247,23 @@ String NetworkManager::getScanResultsJson() {
         return "[]";
     }
 
+    _channelCache.clear();
     std::vector<ScannedItem> list;
     list.reserve(n);
 
     for (int16_t i = 0; i < n; i++) {
         String s = WiFi.SSID(i);
         s.trim();
-        if (s.length() == 0) continue; // ignore hidden / empty SSIDs
+        if (s.length() == 0) continue;
 
         int32_t r = WiFi.RSSI(i);
 #ifdef ESP32
         bool sec = (WiFi.encryptionType(i) != WIFI_AUTH_OPEN);
+        _channelCache.push_back({s, (uint8_t)WiFi.channel(i)});
 #else
         bool sec = (WiFi.encryptionType(i) != ENC_TYPE_NONE);
 #endif
 
-        // Deduplicate: keep highest RSSI
         bool exists = false;
         for (auto& item : list) {
             if (item.ssid == s) {
@@ -264,12 +280,10 @@ String NetworkManager::getScanResultsJson() {
         }
     }
 
-    // Sort by signal strength descending
     std::sort(list.begin(), list.end(), [](const ScannedItem& a, const ScannedItem& b) {
         return a.rssi > b.rssi;
     });
 
-    // Limit to top 12 networks for fast transmission over BLE
     if (list.size() > 12) {
         list.resize(12);
     }
@@ -289,56 +303,79 @@ String NetworkManager::getScanResultsJson() {
 }
 
 void NetworkManager::startJoin(const String& ssid, const String& password) {
-    Serial.printf("[wifi]  joining '%s'...\n", ssid.c_str());
-    _targetSsid = ssid;
-    _joinStatus = JOIN_CONNECTING;
-    _joinStartTime = millis();
-    _joinError = "";
-
-    // Find channel from recent scan results if available
-    int32_t targetChannel = 0;
-    int16_t n = WiFi.scanComplete();
-    if (n > 0) {
-        for (int16_t i = 0; i < n; i++) {
-            if (WiFi.SSID(i) == ssid) {
-                targetChannel = WiFi.channel(i);
-                break;
-            }
-        }
-    }
-    if (targetChannel > 0) {
-        Serial.printf("[wifi]  target '%s' is on channel %d\n", ssid.c_str(), targetChannel);
-    }
-
-    // Stop AP mode so the single 2.4 GHz radio is not locked to channel 1
-    if (_isAp) {
-        _dnsServer.stop();
-        WiFi.softAPdisconnect(true);
-    }
-
     String cleanSsid = ssid;
     cleanSsid.trim();
     String cleanPass = password;
     cleanPass.trim();
 
-    Serial.printf("[wifi]  joining '%s' (pw len %d)...\n", cleanSsid.c_str(), cleanPass.length());
+    Serial.printf("[wifi]  startJoin: '%s' (pw len %d)\n", cleanSsid.c_str(), cleanPass.length());
     _targetSsid = cleanSsid;
     _joinStatus = JOIN_CONNECTING;
     _joinStartTime = millis();
     _disconnectCount = 0;
+    _lastDisconnectReason = 0;
     _joinError = "";
+
+    uint8_t targetChannel = 0;
+    for (const auto& entry : _channelCache) {
+        if (entry.first == cleanSsid) {
+            targetChannel = entry.second;
+            break;
+        }
+    }
+    // If not in cache, check scan results
+    if (targetChannel == 0) {
+        int16_t n = WiFi.scanComplete();
+        if (n > 0) {
+            for (int16_t i = 0; i < n; i++) {
+                if (WiFi.SSID(i) == cleanSsid) {
+                    targetChannel = WiFi.channel(i);
+                    break;
+                }
+            }
+        }
+    }
+    if (targetChannel > 0) {
+        Serial.printf("[wifi]  target '%s' is on channel %d\n", cleanSsid.c_str(), targetChannel);
+    }
 
 #ifdef ESP32
     esp_coex_preference_set(ESP_COEX_PREFER_WIFI);
     NimBLEDevice::getAdvertising()->stop();
+    WiFi.setMinSecurity(WIFI_AUTH_OPEN);
 #endif
 
     WiFi.mode(WIFI_STA);
-    WiFi.disconnect(true);
-    delay(100);
+    WiFi.disconnect(false, false);
+    delay(50);
 
     WiFi.persistent(true);
-    WiFi.setAutoReconnect(true);
+    WiFi.setAutoReconnect(false);
 
-    WiFi.begin(cleanSsid.c_str(), cleanPass.c_str());
+#ifdef ESP32
+    // Optimize 802.11 settings for routers (like Cudy / OpenWrt)
+    esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N);
+    esp_wifi_set_bandwidth(WIFI_IF_STA, WIFI_BW_HT20);
+
+    wifi_config_t conf;
+    memset(&conf, 0, sizeof(wifi_config_t));
+    strncpy((char*)conf.sta.ssid, cleanSsid.c_str(), sizeof(conf.sta.ssid) - 1);
+    strncpy((char*)conf.sta.password, cleanPass.c_str(), sizeof(conf.sta.password) - 1);
+    conf.sta.channel = targetChannel;
+    conf.sta.scan_method = WIFI_ALL_CHANNEL_SCAN;
+    conf.sta.sort_method = WIFI_CONNECT_AP_BY_SIGNAL;
+    conf.sta.threshold.rssi = -127;
+    conf.sta.threshold.authmode = WIFI_AUTH_OPEN;
+    conf.sta.pmf_cfg.capable = false;
+    conf.sta.pmf_cfg.required = false;
+
+    esp_wifi_set_config(WIFI_IF_STA, &conf);
+    esp_wifi_connect();
+#else
+    if (targetChannel > 0) {
+        WiFi.begin(cleanSsid.c_str(), cleanPass.c_str(), targetChannel);
+    } else {
+        WiFi.begin(cleanSsid.c_str(), cleanPass.c_str());
+    }
+#endif
 }

@@ -294,7 +294,7 @@ export function WifiJoinPanel({
               {joinStatus.status === 'failed' && (
                 <div className="flex items-center gap-2 p-2.5 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-xs">
                   <WarningCircle size={16} className="shrink-0" />
-                  <div className="truncate">
+                  <div className="min-w-0 flex-1 break-words">
                     <p className="font-medium">
                       {t('settings.wifiFailedMsg', { error: joinStatus.error || 'Check password' })}
                     </p>

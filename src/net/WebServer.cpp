@@ -121,34 +121,6 @@ void MilaWebServer::begin(Config* cfg, ConfigStore* store, EffectsEngine* engine
 
     // Serve other assets; look for .gz variant first.
     _http.onNotFound([this, handleJson]() {
-        // Captive portal detection & redirection when in AP mode
-        if (_network && _network->isAp()) {
-            String uri = _http.uri();
-            String host = _http.hostHeader();
-            String apIp = _network->apIP();
-
-            bool isProbe = (uri == "/hotspot-detect.html" ||
-                            uri == "/generate_204" ||
-                            uri == "/gen_204" ||
-                            uri == "/ncsi.txt" ||
-                            uri == "/connecttest.txt" ||
-                            uri == "/redirect" ||
-                            uri == "/success.txt" ||
-                            uri == "/wpad.dat");
-
-            if (isProbe || (host.length() > 0 && host != apIp && host != "milaled.local" && !host.startsWith(apIp))) {
-                if (!uri.startsWith("/api") && !uri.startsWith("/json") &&
-                    !uri.startsWith("/assets") && !uri.startsWith("/fonts") &&
-                    !uri.endsWith(".js") && !uri.endsWith(".css") &&
-                    !uri.endsWith(".svg") && !uri.endsWith(".woff2") &&
-                    !uri.endsWith(".png") && !uri.endsWith(".ico")) {
-                    _http.sendHeader("Location", String("http://") + apIp + "/", true);
-                    _http.send(302, "text/plain", "");
-                    return;
-                }
-            }
-        }
-
         // Catch any /json* path that registered routes missed (trailing slashes, etc)
         String uri = _http.uri();
         if (uri.startsWith("/json")) {
