@@ -18,12 +18,8 @@ static bool _prepared = false;
 void NetworkManager::prepare() {
     if (_prepared) return;
 #ifdef ESP8266
-    WiFi.mode(WIFI_STA);
-    wifi_set_macaddr(STATION_IF, _customMac);
     WiFi.mode(WIFI_AP_STA);
 #elif defined(ESP32)
-    WiFi.mode(WIFI_STA);
-    esp_wifi_set_mac(WIFI_IF_STA, _customMac);
     WiFi.mode(WIFI_AP_STA);
 #endif
     _prepared = true;
@@ -56,6 +52,9 @@ void NetworkManager::begin(const char* apName) {
                     reason == WIFI_REASON_HANDSHAKE_TIMEOUT) {
                     _joinStatus = JOIN_FAILED;
                     _joinError = "Authentication failed (wrong password)";
+                } else if (reason == WIFI_REASON_AUTH_EXPIRE) {
+                    _joinStatus = JOIN_FAILED;
+                    _joinError = "Authentication expired (check password / router settings)";
                 } else if (reason == WIFI_REASON_NO_AP_FOUND) {
                     _joinStatus = JOIN_FAILED;
                     _joinError = "Network not found (check 2.4 GHz)";
@@ -324,11 +323,18 @@ void NetworkManager::startJoin(const String& ssid, const String& password) {
     WiFi.persistent(true);
     WiFi.setAutoReconnect(true);
 #ifdef ESP32
+    esp_wifi_set_mode(WIFI_MODE_STA);
+    wifi_config_t conf;
+    memset(&conf, 0, sizeof(conf));
+    strncpy((char*)conf.sta.ssid, ssid.c_str(), sizeof(conf.sta.ssid) - 1);
+    strncpy((char*)conf.sta.password, password.c_str(), sizeof(conf.sta.password) - 1);
+    conf.sta.pmf_cfg.capable = true;
+    conf.sta.pmf_cfg.required = false;
     if (targetChannel > 0) {
-        WiFi.begin(ssid.c_str(), password.c_str(), targetChannel);
-    } else {
-        WiFi.begin(ssid.c_str(), password.c_str());
+        conf.sta.channel = targetChannel;
     }
+    esp_wifi_set_config(WIFI_IF_STA, &conf);
+    esp_wifi_connect();
 #else
     WiFi.begin(ssid.c_str(), password.c_str());
 #endif

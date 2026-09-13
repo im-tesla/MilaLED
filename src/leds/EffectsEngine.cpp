@@ -1,6 +1,10 @@
 #include "EffectsEngine.h"
 
-// ── Hyperion UDP globals (always-on listener on both RAW + DDP ports) ──
+#ifdef ESP32
+#include <WiFi.h>
+#else
+#include <ESP8266WiFi.h>
+#endif
 #include <WiFiUdp.h>
 static WiFiUDP _hyRaw;    // port 19446 — RAW RGB
 static WiFiUDP _hyDdp;    // port 4048  — DDP (default Hyperion WLED protocol)
@@ -10,6 +14,15 @@ uint16_t       _hLen    = 0;
 uint32_t       _hLast   = 0;
 
 void hyperionLoop() {
+    if (WiFi.status() != WL_CONNECTED) {
+        if (_hyReady) {
+            _hyRaw.stop();
+            _hyDdp.stop();
+            _hyReady = false;
+        }
+        return;
+    }
+
     if (!_hyReady) {
         _hyRaw.begin(19446);
         _hyDdp.begin(4048);
