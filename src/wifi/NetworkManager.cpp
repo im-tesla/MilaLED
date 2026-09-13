@@ -61,6 +61,9 @@ void NetworkManager::begin(const char*) {
 
 #ifdef ESP32
     WiFi.setMinSecurity(WIFI_AUTH_OPEN);
+    WiFi.setTxPower(WIFI_POWER_15dBm);
+    wifi_country_t country = {"PL", 1, 13, 20, WIFI_COUNTRY_POLICY_MANUAL};
+    esp_wifi_set_country(&country);
 
     WiFi.onEvent([this](WiFiEvent_t event, WiFiEventInfo_t info) {
         if (event == ARDUINO_EVENT_WIFI_STA_START) {
@@ -72,8 +75,8 @@ void NetworkManager::begin(const char*) {
             Serial.printf("[wifi]  STA got IP: %s\n", ip.toString().c_str());
             _joinStatus = JOIN_SUCCESS;
             _joinError = "";
-            esp_coex_preference_set(ESP_COEX_PREFER_BALANCE);
-            NimBLEDevice::getAdvertising()->start();
+            WiFi.setAutoReconnect(true);
+            esp_coex_preference_set(ESP_COEX_PREFER_WIFI);
             MDNS.begin("milaled");
             MDNS.addService("wled", "_tcp", 80);
             MDNS.addServiceTxt("wled", "_tcp", "mac", WiFi.macAddress().c_str());
@@ -164,9 +167,9 @@ void NetworkManager::loop() {
         if (WiFi.status() == WL_CONNECTED) {
             _joinStatus = JOIN_SUCCESS;
             _joinError = "";
+            WiFi.setAutoReconnect(true);
 #ifdef ESP32
-            esp_coex_preference_set(ESP_COEX_PREFER_BALANCE);
-            NimBLEDevice::getAdvertising()->start();
+            esp_coex_preference_set(ESP_COEX_PREFER_WIFI);
 #endif
             Serial.printf("[wifi]  joined network successfully! IP: %s\n", WiFi.localIP().toString().c_str());
             MDNS.begin("milaled");
@@ -351,31 +354,9 @@ void NetworkManager::startJoin(const String& ssid, const String& password) {
 
     WiFi.persistent(true);
     WiFi.setAutoReconnect(false);
-
 #ifdef ESP32
-    // Optimize 802.11 settings for routers (like Cudy / OpenWrt)
-    esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N);
-    esp_wifi_set_bandwidth(WIFI_IF_STA, WIFI_BW_HT20);
-
-    wifi_config_t conf;
-    memset(&conf, 0, sizeof(wifi_config_t));
-    strncpy((char*)conf.sta.ssid, cleanSsid.c_str(), sizeof(conf.sta.ssid) - 1);
-    strncpy((char*)conf.sta.password, cleanPass.c_str(), sizeof(conf.sta.password) - 1);
-    conf.sta.channel = targetChannel;
-    conf.sta.scan_method = WIFI_ALL_CHANNEL_SCAN;
-    conf.sta.sort_method = WIFI_CONNECT_AP_BY_SIGNAL;
-    conf.sta.threshold.rssi = -127;
-    conf.sta.threshold.authmode = WIFI_AUTH_OPEN;
-    conf.sta.pmf_cfg.capable = false;
-    conf.sta.pmf_cfg.required = false;
-
-    esp_wifi_set_config(WIFI_IF_STA, &conf);
-    esp_wifi_connect();
-#else
-    if (targetChannel > 0) {
-        WiFi.begin(cleanSsid.c_str(), cleanPass.c_str(), targetChannel);
-    } else {
-        WiFi.begin(cleanSsid.c_str(), cleanPass.c_str());
-    }
+    WiFi.setTxPower(WIFI_POWER_15dBm);
 #endif
+
+    WiFi.begin(cleanSsid.c_str(), cleanPass.c_str());
 }
