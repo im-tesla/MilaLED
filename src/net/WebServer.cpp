@@ -625,6 +625,13 @@ bool MilaWebServer::handleBleCommand(const char* json, String& response) {
     }
 
 
+    if (!strcmp(action, "randomizeMac")) {
+        LittleFS.remove("/mac.bin"); // deleted → new random MAC generated on next boot
+        _pendingRestart = true;
+        response = "{\"type\":\"ack\",\"action\":\"randomizeMac\",\"ok\":true}";
+        return true;
+    }
+
     return false;
 }
 
@@ -647,6 +654,7 @@ String MilaWebServer::buildStateJson() {
     doc["ssid"]           = _network ? _network->ssid() : WiFi.SSID();
     doc["wifiConnected"]  = _network ? _network->isConnected() : (WiFi.status() == WL_CONNECTED);
     doc["isAp"]           = _network ? _network->isAp() : false;
+    doc["mac"]            = _network ? _network->macAddress() : WiFi.macAddress();
 
     JsonArray segs = doc["segments"].to<JsonArray>();
     uint16_t physOff = 0;

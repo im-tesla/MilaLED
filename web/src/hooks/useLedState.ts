@@ -54,6 +54,7 @@ export interface LedState {
   ambPollMs: number
   ambMapping: string
   ambStatus?: string
+  mac?: string
 }
 
 const DEFAULT: LedState = {

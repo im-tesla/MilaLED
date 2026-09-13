@@ -85,6 +85,8 @@ export function SettingsTab({
   const [chipset,   setChipset]   = useState(state.chipset)
   const [bleEnabled, setBleEnabled] = useState(state.bleEnabled)
   const [rebooting, setRebooting] = useState(false)
+  const [randomizingMac, setRandomizingMac] = useState(false)
+  const [confirmRandomizeMac, setConfirmRandomizeMac] = useState(false)
 
   // Sync from WebSocket on reconnect
   useEffect(() => {
@@ -149,6 +151,14 @@ export function SettingsTab({
     onClearWifiStatus?.()
     if (TRANSPORT === 'ble') sendCommand({ action: 'wifiDisconnect' })
     else await fetch('/api/wifi/reset', { method: 'POST' }).catch(() => {})
+  }
+
+  const randomizeMac = async () => {
+    setConfirmRandomizeMac(false)
+    setRandomizingMac(true)
+    if (TRANSPORT === 'ble') sendCommand({ action: 'randomizeMac' })
+    else await fetch('/api/mac/randomize', { method: 'POST' }).catch(() => {})
+    setTimeout(() => setRandomizingMac(false), 12000)
   }
 
   const activeSegs = segments.filter(s => s.count > 0)
@@ -475,14 +485,56 @@ export function SettingsTab({
         </div>
       </section>
 
-      {/* Firmware version */}
+      {/* Device info: MAC + Firmware */}
       <section className="space-y-2">
         <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">
-          {t('settings.version')}
+          {t('settings.device')}
         </h3>
-        <div className="rounded-xl bg-zinc-900 border border-zinc-800 p-3 flex items-center justify-between text-sm">
-          <span className="text-zinc-400">{t('settings.version')}</span>
-          <span className="text-zinc-100 tabular-nums">{state.version || '—'}</span>
+        <div className="rounded-xl bg-zinc-900 border border-zinc-800 p-3 space-y-3">
+          {/* MAC address row */}
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-zinc-400">{t('settings.macAddress')}</span>
+            <span className="text-zinc-100 tabular-nums font-mono text-xs">{state.mac || '—'}</span>
+          </div>
+          {/* Randomize button / confirm step */}
+          {confirmRandomizeMac ? (
+            <div className="rounded-lg bg-zinc-800 border border-zinc-700 p-2 space-y-2">
+              <p className="text-xs text-zinc-400">{t('settings.randomizeMacConfirm')}</p>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="flex-1 border-zinc-700 text-zinc-400 hover:border-zinc-600"
+                  onClick={() => setConfirmRandomizeMac(false)}
+                >
+                  {t('settings.cancel')}
+                </Button>
+                <Button
+                  size="sm"
+                  className="flex-1 bg-amber-400 hover:bg-amber-300 text-zinc-950 font-semibold"
+                  onClick={randomizeMac}
+                >
+                  {t('settings.confirm')}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={randomizingMac}
+              className="w-full border-zinc-700 text-zinc-300 hover:text-amber-400 hover:border-amber-400/40"
+              onClick={() => setConfirmRandomizeMac(true)}
+            >
+              <ArrowCounterClockwise size={13} className="mr-1.5" />
+              {randomizingMac ? t('settings.randomizingMac') : t('settings.randomizeMac')}
+            </Button>
+          )}
+          {/* Firmware version */}
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-zinc-400">{t('settings.version')}</span>
+            <span className="text-zinc-100 tabular-nums">{state.version || '—'}</span>
+          </div>
         </div>
       </section>
 
