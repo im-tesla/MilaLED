@@ -25,7 +25,6 @@ void NetworkManager::prepare() {
     WiFi.mode(WIFI_STA);
     esp_wifi_set_mac(WIFI_IF_STA, _customMac);
     WiFi.mode(WIFI_AP_STA);
-    WiFi.setSleep(false); // Disable modem sleep to prevent dropped EAPOL frames
 #endif
     _prepared = true;
 }
@@ -325,7 +324,6 @@ void NetworkManager::startJoin(const String& ssid, const String& password) {
     WiFi.persistent(true);
     WiFi.setAutoReconnect(true);
 #ifdef ESP32
-    WiFi.setSleep(false);
     if (targetChannel > 0) {
         WiFi.begin(ssid.c_str(), password.c_str(), targetChannel);
     } else {
