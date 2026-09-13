@@ -146,7 +146,8 @@ export function SettingsTab({
   }
 
   const resetWifi = async () => {
-    if (TRANSPORT === 'ble') sendCommand({ action: 'wifiReset' })
+    onClearWifiStatus?.()
+    if (TRANSPORT === 'ble') sendCommand({ action: 'wifiDisconnect' })
     else await fetch('/api/wifi/reset', { method: 'POST' }).catch(() => {})
   }
 
@@ -338,7 +339,9 @@ export function SettingsTab({
       {capabilities.wifiConfig && (
       <section className="space-y-2">
         <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">
-          {TRANSPORT === 'ble' ? t('settings.wifiBle') : t('settings.network')}
+          {TRANSPORT === 'ble'
+            ? (state.wifiConnected || (state.ssid && state.ip && state.ip !== '0.0.0.0') ? t('settings.network') : t('settings.wifiBle'))
+            : t('settings.network')}
         </h3>
         <WifiJoinPanel
           networks={wifiNetworks || []}
@@ -349,7 +352,7 @@ export function SettingsTab({
           onClearStatus={onClearWifiStatus || (() => {})}
           currentSsid={state.ssid}
           currentIp={state.ip}
-          isConnected={state.wifiConnected ?? (Boolean(state.ssid) && !state.isAp)}
+          isConnected={Boolean(state.wifiConnected || (state.ssid && state.ip && state.ip !== '0.0.0.0'))}
           onResetWifi={resetWifi}
         />
       </section>

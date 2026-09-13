@@ -654,15 +654,6 @@ bool MilaWebServer::handleBleCommand(const char* json, String& response) {
         }
     }
 
-    if (!strcmp(action, "wifiReset") || !strcmp(action, "wifiDisconnect")) {
-        if (_network) {
-            _network->resetSettings();
-            WiFi.disconnect(true);
-            broadcastState();
-            response = "{\"type\":\"ack\",\"action\":\"wifiReset\",\"ok\":true}";
-            return true;
-        }
-    }
 
     return false;
 }

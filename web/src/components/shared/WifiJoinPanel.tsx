@@ -12,6 +12,7 @@ import {
   WarningCircle,
   Plus,
   Bluetooth,
+  X,
 } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -41,7 +42,7 @@ export function WifiJoinPanel({
   onClearStatus,
   currentSsid,
   currentIp,
-  isConnected,
+  isConnected = false,
   onResetWifi,
   compact = false,
 }: Props) {
@@ -51,11 +52,39 @@ export function WifiJoinPanel({
   const [showPassword, setShowPassword] = useState(false)
   const [isManual, setIsManual] = useState(false)
   const [manualSsid, setManualSsid] = useState('')
-  const [showJoinForm, setShowJoinForm] = useState(!isConnected)
+
+  const isActuallyConnected = Boolean(isConnected || joinStatus.status === 'connected')
+  const [showJoinForm, setShowJoinForm] = useState(!isActuallyConnected)
   const [confirmReset, setConfirmReset] = useState(false)
   const hasAutoScannedRef = useRef(false)
+  const prevConnectedRef = useRef(isActuallyConnected)
 
   const activeSsid = isManual ? manualSsid : selectedSsid
+  const displaySsid = currentSsid || (joinStatus.status === 'connected' ? joinStatus.ssid : '') || ''
+  const displayIp = currentIp || (joinStatus.status === 'connected' ? joinStatus.ip : '') || ''
+
+  // Automatically switch between join form and connected card as connection state changes
+  useEffect(() => {
+    if (isActuallyConnected && !prevConnectedRef.current) {
+      // Just connected or connection detected from loaded state
+      setShowJoinForm(false)
+      setPassword('')
+      setSelectedSsid('')
+      setIsManual(false)
+    } else if (!isActuallyConnected && prevConnectedRef.current) {
+      // Just disconnected
+      setShowJoinForm(true)
+      setConfirmReset(false)
+    }
+    prevConnectedRef.current = isActuallyConnected
+  }, [isActuallyConnected])
+
+  useEffect(() => {
+    if (joinStatus.status === 'connected') {
+      setShowJoinForm(false)
+      setPassword('')
+    }
+  }, [joinStatus.status])
 
   // Auto-trigger initial scan once if no networks yet and joining form is open
   useEffect(() => {
@@ -86,50 +115,60 @@ export function WifiJoinPanel({
   return (
     <div className="space-y-3">
       {/* Current connection status */}
-      {isConnected && currentSsid && !showJoinForm && (
-        <div className="rounded-xl bg-zinc-900 border border-zinc-800 p-3 space-y-2">
+      {isActuallyConnected && !showJoinForm && (
+        <div className="rounded-xl bg-zinc-900 border border-zinc-800 p-3.5 space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <span className="relative flex h-2 w-2">
+              <span className="relative flex h-2.5 w-2.5">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
               </span>
-              <span className="text-sm font-medium text-zinc-100">{currentSsid}</span>
+              <span className="text-xs font-semibold text-emerald-400 uppercase tracking-wider">
+                {t('settings.wifiConnected')}
+              </span>
             </div>
-            <span className="text-xs text-zinc-400 tabular-nums">{currentIp}</span>
+            <WifiHigh size={18} className="text-emerald-400 shrink-0" />
           </div>
 
-          <div className="flex flex-col gap-2 pt-1">
-            <div className="flex gap-2">
+          <div className="rounded-lg bg-zinc-950/60 border border-zinc-800/80 p-3 space-y-2">
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-zinc-400">{t('settings.currentWifi')}</span>
+              <span className="font-semibold text-zinc-100">{displaySsid || '—'}</span>
+            </div>
+            {displayIp && displayIp !== '0.0.0.0' && (
+              <div className="flex items-center justify-between text-xs pt-1.5 border-t border-zinc-800/60">
+                <span className="text-zinc-400">{t('settings.wifiIp')}</span>
+                <span className="font-mono text-zinc-200 tabular-nums">{displayIp}</span>
+              </div>
+            )}
+          </div>
+
+          <div className="pt-0.5">
+            {onResetWifi && !confirmReset && (
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => { setShowJoinForm(true); onScan() }}
-                className="flex-1 border-zinc-700 text-xs text-zinc-300 hover:text-amber-400"
+                onClick={() => setConfirmReset(true)}
+                className="w-full border-zinc-800 text-xs text-zinc-400 hover:text-red-400 hover:border-red-500/40 h-8"
               >
-                {t('settings.wifiChange')}
+                {t('settings.disconnectWifi')}
               </Button>
-
-              {onResetWifi && !confirmReset && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setConfirmReset(true)}
-                  className="border-zinc-800 text-xs text-zinc-400 hover:text-red-400"
-                >
-                  {t('settings.disconnectWifi')}
-                </Button>
-              )}
-            </div>
+            )}
 
             {confirmReset && onResetWifi && (
-              <div className="p-2.5 rounded-lg border border-red-500/30 bg-red-500/10 space-y-2">
-                <p className="text-[11px] text-zinc-300">{t('settings.disconnectConfirm')}</p>
+              <div className="p-3 rounded-lg border border-red-500/30 bg-red-500/10 space-y-2.5">
+                <p className="text-[11px] text-zinc-300 leading-relaxed">
+                  {t('settings.disconnectConfirm')}
+                </p>
                 <div className="flex gap-2">
                   <Button
                     size="sm"
                     variant="destructive"
-                    onClick={() => { setConfirmReset(false); onResetWifi() }}
+                    onClick={() => {
+                      setConfirmReset(false)
+                      setShowJoinForm(true)
+                      onResetWifi()
+                    }}
                     className="flex-1 text-xs h-7"
                   >
                     {t('settings.confirm')}
@@ -164,16 +203,33 @@ export function WifiJoinPanel({
                   {TRANSPORT === 'ble' ? t('settings.wifiBle') : t('settings.wifiJoin')}
                 </span>
               </div>
-              <Button
-                size="sm"
-                variant="ghost"
-                disabled={scanning}
-                onClick={onScan}
-                className="h-7 px-2 text-xs text-zinc-400 hover:text-amber-400 hover:bg-zinc-800"
-              >
-                <ArrowsClockwise size={13} className={`mr-1 ${scanning ? 'animate-spin text-amber-400' : ''}`} />
-                {scanning ? t('settings.scanningWifi') : t('settings.scanWifi')}
-              </Button>
+              <div className="flex items-center gap-1">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={scanning}
+                  onClick={onScan}
+                  className="h-7 px-2 text-xs text-zinc-400 hover:text-amber-400 hover:bg-zinc-800"
+                >
+                  <ArrowsClockwise size={13} className={`mr-1 ${scanning ? 'animate-spin text-amber-400' : ''}`} />
+                  {scanning ? t('settings.scanningWifi') : t('settings.scanWifi')}
+                </Button>
+                {isActuallyConnected && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      setShowJoinForm(false)
+                      onClearStatus()
+                    }}
+                    className="h-7 px-2 text-xs text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800"
+                    title={t('settings.cancel')}
+                  >
+                    <X size={13} className="mr-1" />
+                    {t('settings.cancel')}
+                  </Button>
+                )}
+              </div>
             </div>
 
             {TRANSPORT === 'ble' && (
@@ -312,11 +368,14 @@ export function WifiJoinPanel({
                     ? t('settings.connecting')
                     : (TRANSPORT === 'ble' ? t('settings.joinViaBle') : t('settings.join'))}
                 </Button>
-                {isConnected && (
+                {isActuallyConnected && (
                   <Button
                     type="button"
                     variant="outline"
-                    onClick={() => setShowJoinForm(false)}
+                    onClick={() => {
+                      setShowJoinForm(false)
+                      onClearStatus()
+                    }}
                     className="border-zinc-700 text-zinc-400 text-xs h-9"
                   >
                     {t('settings.cancel')}

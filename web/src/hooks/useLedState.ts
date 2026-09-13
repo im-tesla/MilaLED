@@ -98,7 +98,11 @@ export function useLedState(wsUrl: string) {
   const onMessage = useCallback((data: unknown) => {
     const d = data as Record<string, unknown>
     if (d.type === 'state') {
-      setState(s => ({ ...s, ...(d as Partial<LedState>) }))
+      const s = d as Partial<LedState>
+      setState(prev => ({ ...prev, ...s }))
+      if (s.wifiConnected === false && !s.ssid) {
+        setWifiJoinStatus({ status: 'idle' })
+      }
     } else if (d.type === 'presets') {
       setPresets((d.items as PresetData[]) || [])
     } else if (d.type === 'scanProgress') {
@@ -112,7 +116,7 @@ export function useLedState(wsUrl: string) {
     } else if (d.type === 'wifiJoinResult') {
       const res = d as unknown as WifiJoinStatus
       setWifiJoinStatus(res)
-      if (res.status === 'connected' && res.ssid) {
+      if (res.status === 'connected') {
         setState(s => ({ ...s, ssid: res.ssid || s.ssid, ip: res.ip || s.ip, wifiConnected: true, isAp: false }))
       }
     }
